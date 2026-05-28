@@ -1,0 +1,530 @@
+{
+  "bot_info": {
+    "name": "AI Programming Models Scanner Bot",
+    "description": "بوت لمسح نماذج البرمجة في الذكاء الاصطناعي لاكتشاف المخالفات للتراخيص، مع إشعارات فورية على تليجرام.",
+    "version": "1.0.0",
+    "author": "Iahia Idress",
+    "license": "MIT",
+    "telegram_bot_token": "REPLACE_WITH_YOUR_TELEGRAM_BOT_TOKEN",
+    "telegram_chat_id": "REPLACE_WITH_YOUR_TELEGRAM_CHAT_ID"
+  },
+
+  "commands": [
+    {
+      "command": "start",
+      "description": "بدء البوت وعرض رسالة ترحيب.",
+      "usage": "/start",
+      "example": "/start",
+      "response": "🤖 مرحبًا في بوت مسح نماذج البرمجة! استخدم /help لعرض قائمة الأوامر.",
+      "category": "عام"
+    },
+    {
+      "command": "help",
+      "description": "عرض قائمة جميع الأوامر ومساعدة.",
+      "usage": "/help",
+      "example": "/help",
+      "response": "📜 قائمة أوامر البوت:\n\n🔹 **أوامر عامة:**\n/start - بدء البوت\n/help - عرض هذه القائمة\n\n🔹 **أوامر المسح:**\n/scan_all - مسح جميع المنصات\n/scan_huggingface - مسح Hugging Face\n/scan_github - مسح GitHub\n/scan_modelscope - مسح ModelScope\n/scan_civitai - مسح CivitAI\n/scan_replicate - مسح Replicate\n/scan_tensorflow - مسح TensorFlow Hub\n/scan_no_license - مسح نماذج بدون ترخيص\n/scan_stolen - مسح نماذج مسروقة\n\n🔹 **أوامر المحاكاة:**\n/scan_darkweb - محاكاة تحليل Dark Web OSINT\n/scan_malware - محاكاة تحليل Malware\n\n🔹 **أوامر التقارير:**\n/report - عرض آخر 5 مخالفات\n/stats - عرض إحصائيات المخالفات\n\n🔹 **أوامر الواجهة:**\n/web - بدء واجهة ويب\n\n🔹 **أوامر الجدولة:**\n/schedule_on [ساعات] - تفعيل الجدولة التلقائية (مثال: /schedule_on 24)\n/schedule_off - إيقاف الجدولة التلقائية\n\n🔹 **أوامر SIEM:**\n/siem_on [elk/splunk] [URL] - تفعيل إرسال البيانات إلى SIEM\n/siem_off - إيقاف إرسال البيانات إلى SIEM",
+      "category": "عام"
+    },
+
+    {
+      "command": "scan_all",
+      "description": "بدء مسح جميع المنصات (Hugging Face, GitHub, ModelScope, CivitAI, Replicate, TensorFlow Hub).",
+      "usage": "/scan_all",
+      "example": "/scan_all",
+      "response": "🔍 بدأ مسح جميع المنصات...",
+      "category": "مسح",
+      "parameters": [],
+      "action": {
+        "huggingface": true,
+        "github": true,
+        "modelscope": true,
+        "civitai": true,
+        "replicate": true,
+        "tensorflowHub": true,
+        "noLicense": true,
+        "stolen": true,
+        "darkwebOsint": true,
+        "malwareAnalysis": true
+      }
+    },
+
+    {
+      "command": "scan_huggingface",
+      "description": "مسح Hugging Face بحثًا عن نماذج برمجة مخالفة.",
+      "usage": "/scan_huggingface",
+      "example": "/scan_huggingface",
+      "response": "🔍 بدأ مسح Hugging Face...",
+      "category": "مسح",
+      "parameters": [],
+      "action": {
+        "huggingface": true,
+        "github": false,
+        "modelscope": false,
+        "civitai": false,
+        "replicate": false,
+        "tensorflowHub": false,
+        "noLicense": false,
+        "stolen": false
+      }
+    },
+
+    {
+      "command": "scan_github",
+      "description": "مسح GitHub بحثًا عن مستودعات برمجة مخالفة.",
+      "usage": "/scan_github",
+      "example": "/scan_github",
+      "response": "🔍 بدأ مسح GitHub...",
+      "category": "مسح",
+      "parameters": [],
+      "action": {
+        "huggingface": false,
+        "github": true,
+        "modelscope": false,
+        "civitai": false,
+        "replicate": false,
+        "tensorflowHub": false,
+        "noLicense": false,
+        "stolen": false
+      }
+    },
+
+    {
+      "command": "scan_modelscope",
+      "description": "مسح ModelScope بحثًا عن نماذج برمجة مخالفة.",
+      "usage": "/scan_modelscope",
+      "example": "/scan_modelscope",
+      "response": "🔍 بدأ مسح ModelScope...",
+      "category": "مسح",
+      "parameters": [],
+      "action": {
+        "huggingface": false,
+        "github": false,
+        "modelscope": true,
+        "civitai": false,
+        "replicate": false,
+        "tensorflowHub": false,
+        "noLicense": false,
+        "stolen": false
+      }
+    },
+
+    {
+      "command": "scan_civitai",
+      "description": "مسح CivitAI بحثًا عن نماذج مخالفة.",
+      "usage": "/scan_civitai",
+      "example": "/scan_civitai",
+      "response": "🔍 بدأ مسح CivitAI...",
+      "category": "مسح",
+      "parameters": [],
+      "action": {
+        "huggingface": false,
+        "github": false,
+        "modelscope": false,
+        "civitai": true,
+        "replicate": false,
+        "tensorflowHub": false,
+        "noLicense": false,
+        "stolen": false
+      }
+    },
+
+    {
+      "command": "scan_replicate",
+      "description": "مسح Replicate بحثًا عن نماذج مخالفة.",
+      "usage": "/scan_replicate",
+      "example": "/scan_replicate",
+      "response": "🔍 بدأ مسح Replicate...",
+      "category": "مسح",
+      "parameters": [],
+      "action": {
+        "huggingface": false,
+        "github": false,
+        "modelscope": false,
+        "civitai": false,
+        "replicate": true,
+        "tensorflowHub": false,
+        "noLicense": false,
+        "stolen": false
+      },
+      "requirements": {
+        "api_token": "REPLICATE_API_TOKEN"
+      }
+    },
+
+    {
+      "command": "scan_tensorflow",
+      "description": "مسح TensorFlow Hub بحثًا عن نماذج مخالفة.",
+      "usage": "/scan_tensorflow",
+      "example": "/scan_tensorflow",
+      "response": "🔍 بدأ مسح TensorFlow Hub...",
+      "category": "مسح",
+      "parameters": [],
+      "action": {
+        "huggingface": false,
+        "github": false,
+        "modelscope": false,
+        "civitai": false,
+        "replicate": false,
+        "tensorflowHub": true,
+        "noLicense": false,
+        "stolen": false
+      }
+    },
+
+    {
+      "command": "scan_no_license",
+      "description": "مسح نماذج برمجة بدون ترخيص.",
+      "usage": "/scan_no_license",
+      "example": "/scan_no_license",
+      "response": "🔍 بدأ مسح نماذج بدون ترخيص...",
+      "category": "مسح",
+      "parameters": [],
+      "action": {
+        "huggingface": true,
+        "noLicense": true
+      }
+    },
+
+    {
+      "command": "scan_stolen",
+      "description": "مسح نماذج برمجة مسروقة (مثل GPT4, Claude, etc.).",
+      "usage": "/scan_stolen",
+      "example": "/scan_stolen",
+      "response": "🕵️ بدأ مسح نماذج مسروقة...",
+      "category": "مسح",
+      "parameters": [],
+      "action": {
+        "stolen": true
+      }
+    },
+
+    {
+      "command": "scan_darkweb",
+      "description": "محاكاة تحليل Dark Web OSINT (مصادر مفتوحة).",
+      "usage": "/scan_darkweb",
+      "example": "/scan_darkweb",
+      "response": "🕵️ بدأ تحليل Dark Web OSINT...",
+      "category": "محاكاة",
+      "parameters": [],
+      "action": {
+        "darkwebOsint": true
+      },
+      "note": "هذه ميزة محاكاة فقط، لا يتم الوصول إلى Dark Web فعلًا."
+    },
+
+    {
+      "command": "scan_malware",
+      "description": "محاكاة تحليل Malware (مصادر مفتوحة).",
+      "usage": "/scan_malware",
+      "example": "/scan_malware",
+      "response": "🦠 بدأ تحليل Malware...",
+      "category": "محاكاة",
+      "parameters": [],
+      "action": {
+        "malwareAnalysis": true
+      },
+      "note": "هذه ميزة محاكاة فقط، لا يتم تحليل ملفات حقيقية."
+    },
+
+    {
+      "command": "report",
+      "description": "عرض آخر 5 مخالفات تم اكتشافها.",
+      "usage": "/report",
+      "example": "/report",
+      "response": "📄 آخر 5 مخالفات:\n\n[قائمة المخالفات]",
+      "category": "تقارير",
+      "parameters": []
+    },
+
+    {
+      "command": "stats",
+      "description": "عرض إحصائيات المخالفات المكتشفة.",
+      "usage": "/stats",
+      "example": "/stats",
+      "response": "📊 إحصائيات المخالفات:\n\n🔹 نماذج مشبوهة: X\n📂 مستودعات مشبوهة: Y\n✅ تم الإبلاغ عنها: Z",
+      "category": "إحصائيات",
+      "parameters": []
+    },
+
+    {
+      "command": "web",
+      "description": "بدء واجهة ويب لعرض المخالفات (إذا كانت الأداة تعمل على خادم).",
+      "usage": "/web",
+      "example": "/web",
+      "response": "🌐 واجهة ويب تعمل على: http://[HOST]:[PORT]",
+      "category": "واجهة",
+      "parameters": [],
+      "note": "يتطلب تشغيل الأداة على خادم مع IP عام."
+    },
+
+    {
+      "command": "schedule_on",
+      "description": "تفعيل المسح التلقائي كل X ساعات.",
+      "usage": "/schedule_on <ساعات>",
+      "example": "/schedule_on 24",
+      "response": "⏰ تم تفعيل الجدولة التلقائية كل X ساعات.",
+      "category": "جدولة",
+      "parameters": [
+        {
+          "name": "ساعات",
+          "type": "number",
+          "required": true,
+          "description": "عدد الساعات بين كل مسح."
+        }
+      ]
+    },
+
+    {
+      "command": "schedule_off",
+      "description": "إيقاف المسح التلقائي.",
+      "usage": "/schedule_off",
+      "example": "/schedule_off",
+      "response": "⏹️ تم إيقاف الجدولة التلقائية.",
+      "category": "جدولة",
+      "parameters": []
+    },
+
+    {
+      "command": "siem_on",
+      "description": "تفعيل إرسال البيانات إلى SIEM (Elasticsearch أو Splunk).",
+      "usage": "/siem_on <elk/splunk> <URL>",
+      "example": "/siem_on elk http://localhost:9200",
+      "response": "🔗 تم تفعيل إرسال البيانات إلى [SIEM_TYPE] على [URL].",
+      "category": "تكامل",
+      "parameters": [
+        {
+          "name": "SIEM_TYPE",
+          "type": "string",
+          "required": true,
+          "description": "نوع SIEM: elk أو splunk.",
+          "choices": ["elk", "splunk"]
+        },
+        {
+          "name": "URL",
+          "type": "string",
+          "required": true,
+          "description": "رابط SIEM (مثال: http://localhost:9200)."
+        }
+      ],
+      "requirements": {
+        "api_key": "SIEM_API_KEY (اختياري)"
+      }
+    },
+
+    {
+      "command": "siem_off",
+      "description": "إيقاف إرسال البيانات إلى SIEM.",
+      "usage": "/siem_off",
+      "example": "/siem_off",
+      "response": "🔗 تم إيقاف إرسال البيانات إلى SIEM.",
+      "category": "تكامل",
+      "parameters": []
+    }
+  ],
+
+  "environment_variables": {
+    "required": [
+      {
+        "name": "TELEGRAM_BOT_TOKEN",
+        "description": "رمز بوت تليجرام (من @BotFather).",
+        "example": "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz",
+        "how_to_get": [
+          "1. افتح @BotFather على تليجرام.",
+          "2. أرسل /newbot.",
+          "3. اتبع التعليمات للحصول على الرمز."
+        ]
+      },
+      {
+        "name": "TELEGRAM_CHAT_ID",
+        "description": "معرف دردشة تليجرام (يمكن أن يكون رقمًا أو رقمًا سالبًا للمجموعات).",
+        "example": "987654321",
+        "how_to_get": [
+          "1. أرسل رسالة إلى بوتك (مثال: /start).",
+          "2. افتح المتصفح واذهب إلى: https://api.telegram.org/bot<TOKEN>/getUpdates",
+          "3. ابحث عن chat.id في الاستجابة."
+        ]
+      }
+    ],
+    "optional": [
+      {
+        "name": "REPLICATE_API_TOKEN",
+        "description": "رمز API لـ Replicate (لمسح نماذج Replicate).",
+        "example": "r8_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+        "how_to_get": [
+          "1. سجل الدخول إلى Replicate: https://replicate.com/",
+          "2. اذهب إلى: https://replicate.com/account",
+          "3. انسخ الرمز من قسم API Token."
+        ]
+      },
+      {
+        "name": "KAGGLE_API_TOKEN",
+        "description": "رمز API لـ Kaggle (لمسح نماذج Kaggle).",
+        "example": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+        "how_to_get": [
+          "1. سجل الدخول إلى Kaggle: https://www.kaggle.com/",
+          "2. اذهب إلى: https://www.kaggle.com/account",
+          "3. انقر على Create New Token.",
+          "4. ستحصل على ملف kaggle.json، انسخ قيمة key."
+        ]
+      },
+      {
+        "name": "SIEM_URL",
+        "description": "رابط خادم Elasticsearch أو Splunk.",
+        "example": "http://localhost:9200",
+        "how_to_get": [
+          "1. إذا كنت تستخدم Elasticsearch محليًا: http://localhost:9200",
+          "2. إذا كنت تستخدم Elastic Cloud: https://your-cluster-id.region.gcp.cloud.es.io:9243",
+          "3. إذا كنت تستخدم Splunk: https://your-splunk-server:8088"
+        ]
+      },
+      {
+        "name": "SIEM_API_KEY",
+        "description": "مفتاح API لـ Elasticsearch أو Splunk.",
+        "example": "VuaCfGx... (Elasticsearch) أو your_hec_token (Splunk)",
+        "how_to_get": [
+          "1. لـ Elasticsearch: اذهب إلى Security > API Keys في Kibana.",
+          "2. لـ Splunk: اذهب إلى Settings > Data Inputs > HTTP Event Collector."
+        ]
+      }
+    ]
+  },
+
+  "platforms": {
+    "huggingface": {
+      "name": "Hugging Face",
+      "url": "https://huggingface.co/",
+      "description": "منصة لنماذج الذكاء الاصطناعي المفتوحة المصدر.",
+      "api_url": "https://huggingface.co/api",
+      "supported": true,
+      "license_check": true
+    },
+    "github": {
+      "name": "GitHub",
+      "url": "https://github.com/",
+      "description": "منصة لمستودعات الكود المفتوحة المصدر.",
+      "api_url": "https://api.github.com/",
+      "supported": true,
+      "license_check": true
+    },
+    "modelscope": {
+      "name": "ModelScope",
+      "url": "https://www.modelscope.cn/",
+      "description": "منصة صينية لنماذج الذكاء الاصطناعي.",
+      "api_url": "https://www.modelscope.cn/api/v1",
+      "supported": true,
+      "license_check": true
+    },
+    "civitai": {
+      "name": "CivitAI",
+      "url": "https://civitai.com/",
+      "description": "منصة لنماذج Stable Diffusion.",
+      "api_url": "https://civitai.com/api/v1",
+      "supported": true,
+      "license_check": true,
+      "api_token_required": false
+    },
+    "replicate": {
+      "name": "Replicate",
+      "url": "https://replicate.com/",
+      "description": "منصة لاستضافة نماذج الذكاء الاصطناعي.",
+      "api_url": "https://api.replicate.com/v1",
+      "supported": true,
+      "license_check": true,
+      "api_token_required": true
+    },
+    "tensorflow_hub": {
+      "name": "TensorFlow Hub",
+      "url": "https://tfhub.dev/",
+      "description": "منصة لنماذج TensorFlow.",
+      "api_url": "https://tfhub.dev/api/v1",
+      "supported": true,
+      "license_check": true
+    }
+  },
+
+  "violation_types": {
+    "no_license": {
+      "name": "بدون ترخيص",
+      "description": "نماذج بدون ترخيص أو بترخيص غير محدد.",
+      "severity": "عالية"
+    },
+    "suspicious_license": {
+      "name": "ترخيص مشبوه",
+      "description": "نماذج بترخيص مشبوه (مثل proprietary, non-commercial).",
+      "severity": "متوسطة"
+    },
+    "stolen_model": {
+      "name": "نموذج مسروق",
+      "description": "نماذج مسروقة من منصات مدفوعة (مثل GPT4, Claude).",
+      "severity": "حرجة"
+    },
+    "general_violation": {
+      "name": "مخالفة عامة",
+      "description": "مخالفة عامة غير مصنفة.",
+      "severity": "منخفضة"
+    }
+  },
+
+  "severity_levels": {
+    "low": {
+      "name": "منخفضة",
+      "color": "#5cb85c",
+      "description": "مخالفة غير خطيرة."
+    },
+    "medium": {
+      "name": "متوسطة",
+      "color": "#ffc107",
+      "description": "مخالفة قد تكون خطيرة."
+    },
+    "high": {
+      "name": "عالية",
+      "color": "#f0ad4e",
+      "description": "مخالفة خطيرة."
+    },
+    "critical": {
+      "name": "حرجة",
+      "color": "#d9534f",
+      "description": "مخالفة حرجة تتطلب تدخلًا فوريًا."
+    }
+  },
+
+  "reporting_guidelines": {
+    "Hugging Face": {
+      "security": "https://huggingface.co/security",
+      "dmca": "https://huggingface.co/dmca",
+      "description": "الإبلاغ عن نماذج مخالفة للتراخيص أو مسروقة."
+    },
+    "GitHub": {
+      "dmca": "https://docs.github.com/en/site-policy/dmca-takedown-policy/dmca-takedown-notice-template",
+      "security": "https://securitylab.github.com/",
+      "description": "الإبلاغ عن مستودعات تحتوي على نماذج مخالفة."
+    },
+    "CivitAI": {
+      "dmca": "https://civitai.com/dmca",
+      "description": "الإبلاغ عن نماذج مخالفة على CivitAI."
+    },
+    "Replicate": {
+      "security": "https://replicate.com/security",
+      "description": "الإبلاغ عن نماذج مخالفة على Replicate."
+    },
+    "TensorFlow Hub": {
+      "security": "https://www.tensorflow.org/responsible_ai",
+      "description": "الإبلاغ عن نماذج مخالفة على TensorFlow Hub."
+    },
+    "Bug Bounty Programs": {
+      "Meta": {
+        "url": "https://www.facebook.com/whitehat",
+        "reward": "$500 - $40,000+"
+      },
+      "Google": {
+        "url": "https://www.google.com/about/appsecurity/reward-program/",
+        "reward": "$100 - $31,337+"
+      },
+      "Microsoft": {
+        "url": "https://www.microsoft.com/en-us/msrc/bounty",
+        "reward": "$500 - $250,000+"
+      }
+    }
+  }
+}
