@@ -1,0 +1,1226 @@
+/**
+ * search-ai.js - Full Node.js AI Programming Models Scanner
+ * أداة متكاملة لمسح نماذج البرمجة في الذكاء الاصطناعي
+ * مع إشعارات نصية على تليجرام، دعم لمنصات متعددة، قاعدة بيانات، واجهة ويب، وتكامل مع SIEM
+ */
+ //npm install express axios sqlite3 node-schedule yargs body-parser cors dotenv
+
+require('dotenv').config();
+const express = require('express');
+const axios = require('axios');
+const sqlite3 = require('sqlite3').verbose();
+const schedule = require('node-schedule');
+const yargs = require('yargs/yargs');
+const { hideBin } = require('yargs/helpers');
+const bodyParser = require('body-parser');
+const cors = require('cors');
+
+// قراءة متغيرات البيئة
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const SIEM_URL = process.env.SIEM_URL;
+const SIEM_API_KEY = process.env.SIEM_API_KEY;
+const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
+const KAGGLE_API_TOKEN = process.env.KAGGLE_API_TOKEN;
+
+// إعداد خادم Express
+const app = express();
+app.use(cors());
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// بدء الخادم
+const PORT = process.env.PORT || 5000;
+
+// قائمة التراخيص المسموح بها
+const allowedLicenses = [
+  'apache-2.0', 'mit', 'gpl', 'llama-2', 'bsd',
+  'cc-by-4.0', 'cc-by-sa-4.0', 'lgpl', 'mpl-2.0'
+];
+
+// قائمة التراخيص المشبوهة
+const suspiciousLicenses = ['unknown', 'other', 'proprietary', 'non-commercial'];
+
+// كلمات مفتاحية لنماذج البرمجة
+const programmingModelsKeywords = [
+  'CodeLlama', 'StarCoder', 'DeepSeek-Coder', 'Phind-CodeLlama',
+  'SantaCoder', 'CodeGen', 'PolyCoder', 'InCoder', 'CodeT5',
+  'PLM', 'CodeBERT', 'GraphCodeBERT', 'CodeParrot', 'AlphaCode'
+];
+
+// إعداد قاعدة البيانات
+const db = new sqlite3.Database('./ai_violations.db', (err) => {
+  if (err) {
+    console.error('خطأ في فتح قاعدة البيانات:', err.message);
+  } else {
+    console.log('[+] تم الاتصال بقاعدة البيانات');
+    initializeDatabase();
+  }
+});
+
+// تهيئة قاعدة البيانات
+function initializeDatabase() {
+  db.serialize(() => {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS violations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        entity_name TEXT,
+        license TEXT,
+        url TEXT,
+        last_modified TEXT,
+        keyword TEXT,
+        violation_type TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        platform TEXT,
+        status TEXT DEFAULT 'غير مبلغ عنه',
+        reported_at TEXT,
+        detected_at TEXT NOT NULL
+      )
+    `);
+  });
+}
+
+// إرسال إشعار نصي إلى تليجرام
+async function sendTelegramText(message) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+    console.error('رمز البوت أو معرف الدردشة غير مضبوط.');
+    return { status: 'error', message: 'Telegram bot token or chat ID not set.' };
+  }
+
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+  const payload = {
+    chat_id: TELEGRAM_CHAT_ID,
+    text: message,
+    parse_mode: 'HTML',
+    disable_web_page_preview: true
+  };
+
+  try {
+    const response = await axios.post(url, payload, { timeout: 10000 });
+    return { status: 'success' };
+  } catch (error) {
+    console.error('خطأ في إرسال الإشعار:', error.message);
+    return { status: 'error', message: error.message };
+  }
+}
+
+// إرسال تقرير نصي إلى تليجرام
+async function sendTextReportToTelegram(suspiciousModels, suspiciousRepos, suspiciousServers = []) {
+  if (!suspiciousModels.length && !suspiciousRepos.length && !suspiciousServers.length) {
+    await sendTelegramText('✅ <b>لا يوجد أي مخالفات تم اكتشافها.</b>');
+    return;
+  }
+
+  let reportLines = [];
+  reportLines.push(`📊 <b>تقرير عن مخالفات نماذج البرمجة</b>`);
+  reportLines.push(`📅 <b>التاريخ:</b> ${new Date().toLocaleString('ar-SA')}`);
+  reportLines.push('');
+
+  // إضافة نماذج مشبوهة
+  if (suspiciousModels.length) {
+    reportLines.push(`🔹 <b>نماذج مشبوهة (${suspiciousModels.length})</b>`);
+    for (const model of suspiciousModels) {
+      reportLines.push('');
+      reportLines.push(`📌 <b>معرف النموذج:</b> <code>${model.id}</code>`);
+      reportLines.push(`🔗 <b>الرابط:</b> ${model.url}`);
+      reportLines.push(`📜 <b>الترخيص:</b> <code>${model.license}</code>`);
+      reportLines.push(`🏷️ <b>الكلمة المفتاحية:</b> <code>${model.keyword || 'N/A'}</code>`);
+      reportLines.push(`🔍 <b>نوع المخالفة:</b> ${model.violation_type || 'N/A'}`);
+      reportLines.push(`⚠️ <b>درجة الخطورة:</b> ${model.severity || 'N/A'}`);
+      reportLines.push(`📅 <b>آخر تعديل:</b> ${model.last_modified || 'N/A'}`);
+    }
+  }
+
+  // إضافة مستودعات مشبوهة
+  if (suspiciousRepos.length) {
+    reportLines.push('');
+    reportLines.push(`📂 <b>مستودعات مشبوهة (${suspiciousRepos.length})</b>`);
+    for (const repo of suspiciousRepos) {
+      reportLines.push('');
+      reportLines.push(`📦 <b>اسم المستودع:</b> <code>${repo.name}</code>`);
+      reportLines.push(`🔗 <b>الرابط:</b> ${repo.url}`);
+      reportLines.push(`📜 <b>الترخيص:</b> <code>${repo.license}</code>`);
+      reportLines.push(`🏷️ <b>الكلمة المفتاحية:</b> <code>${repo.keyword || 'N/A'}</code>`);
+      reportLines.push(`🔍 <b>نوع المخالفة:</b> ${repo.violation_type || 'N/A'}`);
+      reportLines.push(`⚠️ <b>درجة الخطورة:</b> ${repo.severity || 'N/A'}`);
+      reportLines.push(`📅 <b>آخر تحديث:</b> ${repo.last_updated || 'N/A'}`);
+    }
+  }
+
+  // إضافة خادمات غير آمنة
+  if (suspiciousServers.length) {
+    reportLines.push('');
+    reportLines.push(`🖥️ <b>خادمات غير آمنة (${suspiciousServers.length})</b>`);
+    for (const server of suspiciousServers) {
+      reportLines.push('');
+      reportLines.push(`📌 <b>IP:</b> <code>${server.ip}</code>`);
+      reportLines.push(`🔍 <b>نوع المخالفة:</b> ${server.violation_type || 'N/A'}`);
+      reportLines.push(`⚠️ <b>درجة الخطورة:</b> ${server.severity || 'N/A'}`);
+    }
+  }
+
+  // إرسال التقرير
+  const fullReport = reportLines.join('\n');
+  await sendTelegramText(fullReport);
+}
+
+// تحديد نوع المخالفة
+function determineViolationType(license, modelId) {
+  if (license === 'unknown' || !license) {
+    return 'بدون ترخيص';
+  } else if (suspiciousLicenses.includes(license)) {
+    return 'ترخيص مشبوه';
+  } else if (['gpt4', 'claude', 'palm'].some(keyword => modelId.toLowerCase().includes(keyword))) {
+    return 'نموذج مسروق';
+  } else {
+    return 'مخالفة عامة';
+  }
+}
+
+// تحديد درجة الخطورة
+function determineSeverity(violationType) {
+  const severityMap = {
+    'بدون ترخيص': 'عالية',
+    'ترخيص مشبوه': 'متوسطة',
+    'نموذج مسروق': 'حرجة',
+    'مخالفة عامة': 'منخفضة'
+  };
+  return severityMap[violationType] || 'منخفضة';
+}
+
+// البحث في Hugging Face
+async function scanHuggingFace(limit = 20) {
+  const suspiciousModels = [];
+  for (const keyword of programmingModelsKeywords) {
+    const url = `https://huggingface.co/api/models?search=${keyword}&limit=${limit}`;
+    try {
+      const response = await axios.get(url, { timeout: 15000 });
+      const models = response.data;
+      for (const model of models) {
+        const license = (model.license || 'unknown').toLowerCase();
+        const violationType = determineViolationType(license, model.id || '');
+        const severity = determineSeverity(violationType);
+
+        if (!allowedLicenses.includes(license) || suspiciousLicenses.includes(license)) {
+          suspiciousModels.push({
+            id: model.id,
+            license,
+            url: `https://huggingface.co/${model.id}`,
+            last_modified: model.lastModified || 'Unknown',
+            keyword,
+            violation_type: violationType,
+            severity,
+            platform: 'Hugging Face'
+          });
+
+          // إرسال إشعار فوري
+          const message = `
+⚠️ <b>نموذج برمجة مشبوه</b>
+
+🔹 <b>معرف النموذج:</b> <code>${model.id}</code>
+🔗 <b>الرابط:</b> ${`https://huggingface.co/${model.id}`}
+📜 <b>الترخيص:</b> <code>${license}</code>
+🏷️ <b>الكلمة المفتاحية:</b> <code>${keyword}</code>
+🔍 <b>نوع المخالفة:</b> ${violationType}
+⚠️ <b>درجة الخطورة:</b> ${severity}
+`;
+          await sendTelegramText(message);
+        }
+      }
+    } catch (error) {
+      console.error(`خطأ في مسح Hugging Face للكلمة ${keyword}:`, error.message);
+      continue;
+    }
+  }
+  return suspiciousModels;
+}
+
+// البحث في GitHub
+async function scanGitHub(limit = 20) {
+  const suspiciousRepos = [];
+  for (const keyword of programmingModelsKeywords) {
+    const url = `https://api.github.com/search/repositories?q=${keyword}+in:readme&per_page=${limit}`;
+    const headers = { Accept: 'application/vnd.github.v3+json' };
+    try {
+      const response = await axios.get(url, { headers, timeout: 15000 });
+      const repos = response.data.items;
+      for (const repo of repos) {
+        const licenseKey = (repo.license?.key || 'unknown').toLowerCase();
+        const violationType = determineViolationType(licenseKey, repo.full_name || '');
+        const severity = determineSeverity(violationType);
+
+        if (!allowedLicenses.includes(licenseKey) || suspiciousLicenses.includes(licenseKey)) {
+          suspiciousRepos.push({
+            name: repo.full_name,
+            license: licenseKey,
+            url: repo.html_url,
+            last_updated: repo.updated_at,
+            keyword,
+            violation_type: violationType,
+            severity,
+            platform: 'GitHub'
+          });
+
+          // إرسال إشعار فوري
+          const message = `
+⚠️ <b>مستودع برمجة مشبوه</b>
+
+📦 <b>اسم المستودع:</b> <code>${repo.full_name}</code>
+🔗 <b>الرابط:</b> ${repo.html_url}
+📜 <b>الترخيص:</b> <code>${licenseKey}</code>
+🏷️ <b>الكلمة المفتاحية:</b> <code>${keyword}</code>
+🔍 <b>نوع المخالفة:</b> ${violationType}
+⚠️ <b>درجة الخطورة:</b> ${severity}
+`;
+          await sendTelegramText(message);
+        }
+      }
+    } catch (error) {
+      console.error(`خطأ في مسح GitHub للكلمة ${keyword}:`, error.message);
+      continue;
+    }
+  }
+  return suspiciousRepos;
+}
+
+// البحث في ModelScope
+async function scanModelScope(limit = 20) {
+  const suspiciousModels = [];
+  for (const keyword of programmingModelsKeywords) {
+    const url = `https://www.modelscope.cn/api/v1/models?page=1&pageSize=${limit}&search=${keyword}`;
+    try {
+      const response = await axios.get(url, { timeout: 15000 });
+      const models = response.data.data?.models || [];
+      for (const model of models) {
+        const license = (model.license || 'unknown').toLowerCase();
+        const violationType = determineViolationType(license, model.modelId || '');
+        const severity = determineSeverity(violationType);
+
+        if (!allowedLicenses.includes(license) || suspiciousLicenses.includes(license)) {
+          suspiciousModels.push({
+            id: model.modelId,
+            license,
+            url: `https://www.modelscope.cn/models/${model.modelId}`,
+            last_modified: model.updateTime || 'Unknown',
+            keyword,
+            violation_type: violationType,
+            severity,
+            platform: 'ModelScope'
+          });
+
+          // إرسال إشعار فوري
+          const message = `
+⚠️ <b>نموذج برمجة مشبوه (ModelScope)</b>
+
+🔹 <b>معرف النموذج:</b> <code>${model.modelId}</code>
+🔗 <b>الرابط:</b> ${`https://www.modelscope.cn/models/${model.modelId}`}
+📜 <b>الترخيص:</b> <code>${license}</code>
+🏷️ <b>الكلمة المفتاحية:</b> <code>${keyword}</code>
+🔍 <b>نوع المخالفة:</b> ${violationType}
+⚠️ <b>درجة الخطورة:</b> ${severity}
+`;
+          await sendTelegramText(message);
+        }
+      }
+    } catch (error) {
+      console.error(`خطأ في مسح ModelScope للكلمة ${keyword}:`, error.message);
+      continue;
+    }
+  }
+  return suspiciousModels;
+}
+
+// البحث في CivitAI
+async function scanCivitAI(limit = 20) {
+  const suspiciousModels = [];
+  for (const keyword of programmingModelsKeywords) {
+    const url = `https://civitai.com/api/v1/models?query=${keyword}&limit=${limit}`;
+    try {
+      const response = await axios.get(url, {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        timeout: 15000
+      });
+
+      const models = response.data.items || [];
+      for (const model of models) {
+        const license = (model.license || 'unknown').toLowerCase();
+        const violationType = determineViolationType(license, model.name || '');
+        const severity = determineSeverity(violationType);
+
+        if (!allowedLicenses.includes(license) || suspiciousLicenses.includes(license)) {
+          suspiciousModels.push({
+            id: model.id,
+            name: model.name,
+            license,
+            url: `https://civitai.com/models/${model.id}`,
+            last_modified: model.updatedAt || 'Unknown',
+            keyword,
+            violation_type: violationType,
+            severity,
+            platform: 'CivitAI'
+          });
+
+          // إرسال إشعار فوري
+          const message = `
+⚠️ <b>نموذج مشبوه على CivitAI</b>
+
+🔹 <b>اسم النموذج:</b> <code>${model.name}</code>
+🔗 <b>الرابط:</b> https://civitai.com/models/${model.id}
+📜 <b>الترخيص:</b> <code>${license}</code>
+🏷️ <b>الكلمة المفتاحية:</b> <code>${keyword}</code>
+🔍 <b>نوع المخالفة:</b> ${violationType}
+⚠️ <b>درجة الخطورة:</b> ${severity}
+`;
+          await sendTelegramText(message);
+        }
+      }
+    } catch (error) {
+      console.error(`خطأ في مسح CivitAI للكلمة ${keyword}:`, error.message);
+      continue;
+    }
+  }
+  return suspiciousModels;
+}
+
+// البحث في Replicate
+async function scanReplicate(limit = 20) {
+  if (!REPLICATE_API_TOKEN) {
+    console.error('REPLICATE_API_TOKEN غير مضبوط.');
+    return [];
+  }
+
+  const suspiciousModels = [];
+  for (const keyword of programmingModelsKeywords) {
+    const url = `https://api.replicate.com/v1/models?search=${keyword}&limit=${limit}`;
+    try {
+      const response = await axios.get(url, {
+        headers: {
+          'Authorization': `Token ${REPLICATE_API_TOKEN}`,
+          'Accept': 'application/json'
+        },
+        timeout: 15000
+      });
+
+      const models = response.data.results || [];
+      for (const model of models) {
+        const license = (model.license || 'unknown').toLowerCase();
+        const violationType = determineViolationType(license, model.name || '');
+        const severity = determineSeverity(violationType);
+
+        if (!allowedLicenses.includes(license) || suspiciousLicenses.includes(license)) {
+          suspiciousModels.push({
+            id: model.id,
+            name: model.name,
+            license,
+            url: `https://replicate.com/${model.owner}/${model.name}`,
+            last_modified: model.updated_at || 'Unknown',
+            keyword,
+            violation_type: violationType,
+            severity,
+            platform: 'Replicate'
+          });
+
+          // إرسال إشعار فوري
+          const message = `
+⚠️ <b>نموذج مشبوه على Replicate</b>
+
+🔹 <b>اسم النموذج:</b> <code>${model.name}</code>
+🔗 <b>الرابط:</b> https://replicate.com/${model.owner}/${model.name}
+📜 <b>الترخيص:</b> <code>${license}</code>
+🏷️ <b>الكلمة المفتاحية:</b> <code>${keyword}</code>
+🔍 <b>نوع المخالفة:</b> ${violationType}
+⚠️ <b>درجة الخطورة:</b> ${severity}
+`;
+          await sendTelegramText(message);
+        }
+      }
+    } catch (error) {
+      console.error(`خطأ في مسح Replicate للكلمة ${keyword}:`, error.message);
+      continue;
+    }
+  }
+  return suspiciousModels;
+}
+
+// البحث في TensorFlow Hub
+async function scanTensorFlowHub(limit = 20) {
+  const suspiciousModels = [];
+  for (const keyword of programmingModelsKeywords) {
+    const url = `https://tfhub.dev/api/v1/search?query=${keyword}&limit=${limit}`;
+    try {
+      const response = await axios.get(url, { timeout: 15000 });
+      const models = response.data.models || [];
+
+      for (const model of models) {
+        const license = (model.license || 'unknown').toLowerCase();
+        const violationType = determineViolationType(license, model.name || '');
+        const severity = determineSeverity(violationType);
+
+        if (!allowedLicenses.includes(license) || suspiciousLicenses.includes(license)) {
+          suspiciousModels.push({
+            id: model.id,
+            name: model.name,
+            license,
+            url: `https://tfhub.dev/${model.author}/${model.name}`,
+            last_modified: model.last_updated || 'Unknown',
+            keyword,
+            violation_type: violationType,
+            severity,
+            platform: 'TensorFlow Hub'
+          });
+
+          // إرسال إشعار فوري
+          const message = `
+⚠️ <b>نموذج مشبوه على TensorFlow Hub</b>
+
+🔹 <b>اسم النموذج:</b> <code>${model.name}</code>
+🔗 <b>الرابط:</b> https://tfhub.dev/${model.author}/${model.name}
+📜 <b>الترخيص:</b> <code>${license}</code>
+🏷️ <b>الكلمة المفتاحية:</b> <code>${keyword}</code>
+🔍 <b>نوع المخالفة:</b> ${violationType}
+⚠️ <b>درجة الخطورة:</b> ${severity}
+`;
+          await sendTelegramText(message);
+        }
+      }
+    } catch (error) {
+      console.error(`خطأ في مسح TensorFlow Hub للكلمة ${keyword}:`, error.message);
+      continue;
+    }
+  }
+  return suspiciousModels;
+}
+
+// البحث عن نماذج بدون ترخيص
+async function scanNoLicense(limit = 20) {
+  const suspiciousModels = [];
+  const url = `https://huggingface.co/api/models?limit=${limit}`;
+  try {
+    const response = await axios.get(url, { timeout: 15000 });
+    const models = response.data;
+    for (const model of models) {
+      const modelName = model.id.toLowerCase();
+      const isProgrammingModel = programmingModelsKeywords.some(
+        keyword => modelName.includes(keyword.toLowerCase())
+      );
+
+      if (isProgrammingModel && (!model.license || model.license.toLowerCase() === 'unknown')) {
+        suspiciousModels.push({
+          id: model.id,
+          license: model.license || 'None',
+          url: `https://huggingface.co/${model.id}`,
+          last_modified: model.lastModified || 'Unknown',
+          keyword: 'No License',
+          violation_type: 'بدون ترخيص',
+          severity: 'عالية',
+          platform: 'Hugging Face'
+        });
+
+        // إرسال إشعار فوري
+        const message = `
+⚠️ <b>نموذج برمجة بدون ترخيص</b>
+
+🔹 <b>معرف النموذج:</b> <code>${model.id}</code>
+🔗 <b>الرابط:</b> ${`https://huggingface.co/${model.id}`}
+📜 <b>الترخيص:</b> <code>${model.license || 'None'}</code>
+🔍 <b>نوع المخالفة:</b> بدون ترخيص
+⚠️ <b>درجة الخطورة:</b> عالية
+`;
+        await sendTelegramText(message);
+      }
+    }
+  } catch (error) {
+    console.error('خطأ في مسح نماذج بدون ترخيص:', error.message);
+  }
+  return suspiciousModels;
+}
+
+// البحث عن نماذج مسروقة
+async function scanStolenModels(limit = 20) {
+  const stolenKeywords = ['gpt4', 'claude', 'palm', 'gemini', 'llama3'];
+  const suspiciousModels = [];
+  for (const keyword of stolenKeywords) {
+    const url = `https://huggingface.co/api/models?search=${keyword}&limit=${limit}`;
+    try {
+      const response = await axios.get(url, { timeout: 15000 });
+      const models = response.data;
+      for (const model of models) {
+        suspiciousModels.push({
+          id: model.id,
+          license: model.license || 'unknown',
+          url: `https://huggingface.co/${model.id}`,
+          last_modified: model.lastModified || 'Unknown',
+          keyword,
+          violation_type: 'نموذج مسروق',
+          severity: 'حرجة',
+          platform: 'Hugging Face'
+        });
+
+        // إرسال إشعار فوري
+        const message = `
+🕵️ <b>نموذج مسروق محتمل</b>
+
+🔹 <b>معرف النموذج:</b> <code>${model.id}</code>
+🔗 <b>الرابط:</b> ${`https://huggingface.co/${model.id}`}
+🔍 <b>السبب:</b> كلمة مشبوهة: ${keyword}
+⚠️ <b>درجة الخطورة:</b> حرجة
+`;
+        await sendTelegramText(message);
+      }
+    } catch (error) {
+      console.error(`خطأ في مسح نماذج مسروقة للكلمة ${keyword}:`, error.message);
+      continue;
+    }
+  }
+  return suspiciousModels;
+}
+
+// محاكاة تحليل Dark Web OSINT
+async function simulateDarkWebOSINT() {
+  const osintSources = [
+    {
+      source: 'GitHub Issues',
+      type: 'مناقشات حول نماذج مسروقة',
+      data: 'تم اكتشاف مناقشات حول نماذج CodeLlama غير مرخصة'
+    },
+    {
+      source: 'Reddit',
+      type: 'منشورات حول ثغرات',
+      data: 'منشورات حول ثغرات في نماذج StarCoder'
+    },
+    {
+      source: 'Twitter',
+      type: 'تغريدات حول نماذج مخترقة',
+      data: 'تغريدات حول نماذج DeepSeek-Coder مع أبواب خلفية'
+    }
+  ];
+
+  for (const source of osintSources) {
+    const message = `
+🕵️ <b>معلومات استخبارية من ${source.source}</b>
+
+🔍 <b>النوع:</b> ${source.type}
+📌 <b>البيانات:</b> ${source.data}
+`;
+    await sendTelegramText(message);
+  }
+}
+
+// محاكاة تحليل Malware
+async function simulateMalwareAnalysis() {
+  const malwareSamples = [
+    {
+      filename: 'suspicious_model.bin',
+      type: 'Backdoor',
+      severity: 'حرجة',
+      description: 'تم اكتشاف باب خلفي في نموذج برمجة'
+    },
+    {
+      filename: 'poisoned_dataset.json',
+      type: 'Data Poisoning',
+      severity: 'عالية',
+      description: 'تم اكتشاف بيانات تدريب مسممة'
+    }
+  ];
+
+  for (const sample of malwareSamples) {
+    const message = `
+🦠 <b>برمجية خبيثة مكتشفة</b>
+
+📌 <b>اسم الملف:</b> <code>${sample.filename}</code>
+🔍 <b>النوع:</b> ${sample.type}
+⚠️ <b>درجة الخطورة:</b> ${sample.severity}
+📝 <b>الوصف:</b> ${sample.description}
+`;
+    await sendTelegramText(message);
+  }
+}
+
+// حفظ النتائج في قاعدة البيانات
+function saveToDatabase(suspiciousModels, suspiciousRepos, suspiciousServers = []) {
+  return new Promise((resolve, reject) => {
+    db.serialize(() => {
+      const timestamp = new Date().toISOString();
+
+      // إدراج النماذج
+      for (const model of suspiciousModels) {
+        db.run(
+          `INSERT INTO violations (
+            entity_type, entity_id, entity_name, license, url, last_modified,
+            keyword, violation_type, severity, platform, detected_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            'model',
+            model.id,
+            model.name || model.id,
+            model.license,
+            model.url,
+            model.last_modified,
+            model.keyword || '',
+            model.violation_type || '',
+            model.severity || '',
+            model.platform || 'Hugging Face',
+            timestamp
+          ]
+        );
+      }
+
+      // إدراج المستودعات
+      for (const repo of suspiciousRepos) {
+        db.run(
+          `INSERT INTO violations (
+            entity_type, entity_id, entity_name, license, url, last_modified,
+            keyword, violation_type, severity, platform, detected_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            'repo',
+            repo.name,
+            repo.name,
+            repo.license,
+            repo.url,
+            repo.last_updated,
+            repo.keyword || '',
+            repo.violation_type || '',
+            repo.severity || '',
+            'GitHub',
+            timestamp
+          ]
+        );
+      }
+
+      resolve({ status: 'success', message: 'تم حفظ البيانات في قاعدة البيانات' });
+    });
+  });
+}
+
+// تحديث حالة الإبلاغ
+function updateReportStatus(entityType, entityId, status) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      `UPDATE violations SET status = ?, reported_at = ? WHERE entity_type = ? AND entity_id = ?`,
+      [status, new Date().toISOString(), entityType, entityId],
+      (err) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve({ status: 'success', message: `تم تحديث حالة الإبلاغ لـ ${entityId}` });
+        }
+      }
+    );
+  });
+}
+
+// إرسال البيانات إلى SIEM
+async function sendToSIEM(data, siemType, siemUrl, siemApiKey) {
+  if (siemType === 'elk') {
+    if (!siemUrl) {
+      return { status: 'error', message: 'Elasticsearch URL not provided.' };
+    }
+
+    const url = `${siemUrl}/ai_violations/_doc`;
+    const headers = { 'Content-Type': 'application/json' };
+    if (siemApiKey) {
+      headers['Authorization'] = `ApiKey ${siemApiKey}`;
+    }
+
+    try {
+      for (const item of data) {
+        await axios.post(url, item, { headers, timeout: 10000 });
+      }
+      return { status: 'success', message: 'Data sent to Elasticsearch.' };
+    } catch (error) {
+      console.error('خطأ في إرسال البيانات إلى Elasticsearch:', error.message);
+      return { status: 'error', message: error.message };
+    }
+  } else if (siemType === 'splunk') {
+    if (!siemUrl) {
+      return { status: 'error', message: 'Splunk HEC URL not provided.' };
+    }
+
+    const url = `${siemUrl}/services/collector`;
+    const headers = {
+      'Authorization': `Splunk ${siemApiKey}`,
+      'Content-Type': 'application/json'
+    };
+
+    try {
+      for (const item of data) {
+        await axios.post(url, item, { headers, timeout: 10000 });
+      }
+      return { status: 'success', message: 'Data sent to Splunk.' };
+    } catch (error) {
+      console.error('خطأ في إرسال البيانات إلى Splunk:', error.message);
+      return { status: 'error', message: error.message };
+    }
+  } else {
+    return { status: 'error', message: `Unsupported SIEM type: ${siemType}` };
+  }
+}
+
+// بدء واجهة ويب
+function startWebInterface() {
+  app.get('/', (req, res) => {
+    db.all(`SELECT * FROM violations ORDER BY detected_at DESC`, (err, violations) => {
+      if (err) {
+        console.error('خطأ في جلب البيانات:', err.message);
+        return res.status(500).send('خطأ في قاعدة البيانات');
+      }
+
+      db.get(`SELECT COUNT(*) as count FROM violations WHERE entity_type = 'model'`, (err, row) => {
+        const modelCount = row.count;
+        db.get(`SELECT COUNT(*) as count FROM violations WHERE entity_type = 'repo'`, (err, row) => {
+          const repoCount = row.count;
+          db.get(`SELECT COUNT(*) as count FROM violations WHERE status = 'تم الإبلاغ'`, (err, row) => {
+            const reportedCount = row.count;
+
+            const html = `
+            <!DOCTYPE html>
+            <html dir="rtl" lang="ar">
+            <head>
+                <meta charset="UTF-8">
+                <title>لوحة تحكم - أداة مسح نماذج البرمجة</title>
+                <style>
+                    body { font-family: 'Arial', 'Segoe UI', sans-serif; text-align: right; direction: rtl; padding: 20px; background-color: #f9f9f9; }
+                    .header { background-color: #333; color: white; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
+                    .stats { display: flex; justify-content: space-around; margin-bottom: 20px; }
+                    .stat-box { background-color: white; padding: 15px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); text-align: center; flex: 1; margin: 0 10px; }
+                    .stat-number { font-size: 24px; font-weight: bold; color: #d9534f; }
+                    .stat-label { color: #666; font-size: 14px; }
+                    table { border-collapse: collapse; width: 100%; margin-bottom: 20px; background-color: white; }
+                    th, td { border: 1px solid #ddd; padding: 12px; text-align: right; }
+                    th { background-color: #f2f2f2; color: #333; }
+                    .critical { background-color: #ffcccc; }
+                    .high { background-color: #ffdddd; }
+                    .medium { background-color: #fff3cd; }
+                    .low { background-color: #d4edda; }
+                    a { color: #337ab7; text-decoration: none; }
+                    a:hover { text-decoration: underline; }
+                    .severity { font-weight: bold; }
+                    .critical-severity { color: #d9534f; }
+                    .high-severity { color: #f0ad4e; }
+                    .medium-severity { color: #ffc107; }
+                    .low-severity { color: #5cb85c; }
+                    .status { padding: 5px 10px; border-radius: 3px; font-size: 12px; }
+                    .status-reported { background-color: #d4edda; color: #155724; }
+                    .status-not-reported { background-color: #fff3cd; color: #856404; }
+                    .actions { margin-top: 10px; }
+                    .btn { padding: 5px 10px; margin: 0 5px; border: none; border-radius: 3px; cursor: pointer; }
+                    .btn-report { background-color: #28a745; color: white; }
+                    .btn-ignore { background-color: #dc3545; color: white; }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <h1>لوحة تحكم - أداة مسح نماذج البرمجة</h1>
+                    <p>مراقبة المخالفات المكتشفة</p>
+                </div>
+
+                <div class="stats">
+                    <div class="stat-box">
+                        <div class="stat-number">${modelCount}</div>
+                        <div class="stat-label">نماذج مشبوهة</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-number">${repoCount}</div>
+                        <div class="stat-label">مستودعات مشبوهة</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-number">${reportedCount}</div>
+                        <div class="stat-label">تم الإبلاغ عنها</div>
+                    </div>
+                </div>
+
+                <h2>قائمة المخالفات (${violations.length})</h2>
+                <table>
+                    <tr>
+                        <th>النوع</th>
+                        <th>المعرف</th>
+                        <th>الترخيص</th>
+                        <th>نوع المخالفة</th>
+                        <th>درجة الخطورة</th>
+                        <th>الحالة</th>
+                        <th>الرابط</th>
+                        <th>تاريخ الكشف</th>
+                        <th>الإجراءات</th>
+                    </tr>
+                    ${violations.map(violation => `
+                    <tr class="${violation.severity}">
+                        <td>${violation.entity_type}</td>
+                        <td>${violation.entity_name}</td>
+                        <td>${violation.license}</td>
+                        <td>${violation.violation_type}</td>
+                        <td class="severity ${violation.severity}-severity">${violation.severity}</td>
+                        <td><span class="status status-${violation.status}">${violation.status}</span></td>
+                        <td><a href="${violation.url}" target="_blank">رابط</a></td>
+                        <td>${violation.detected_at}</td>
+                        <td class="actions">
+                            <button class="btn btn-report" onclick="reportViolation('${violation.entity_type}', '${violation.entity_id}')">إبلاغ</button>
+                            <button class="btn btn-ignore" onclick="ignoreViolation('${violation.entity_type}', '${violation.entity_id}')">تجاهل</button>
+                        </td>
+                    </tr>
+                    `).join('')}
+                </table>
+
+                <script>
+                    function reportViolation(entityType, entityId) {
+                        fetch('/report', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ entity_type: entityType, entity_id: entityId })
+                        }).then(response => response.json()).then(data => {
+                            alert(data.message);
+                            location.reload();
+                        });
+                    }
+
+                    function ignoreViolation(entityType, entityId) {
+                        fetch('/ignore', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ entity_type: entityType, entity_id: entityId })
+                        }).then(response => response.json()).then(data => {
+                            alert(data.message);
+                            location.reload();
+                        });
+                    }
+                </script>
+            </body>
+            </html>
+            `;
+            res.send(html);
+          });
+        });
+      });
+    });
+  });
+
+  app.post('/report', (req, res) => {
+    const { entity_type, entity_id } = req.body;
+    updateReportStatus(entity_type, entity_id, 'تم الإبلاغ')
+      .then(result => res.json(result))
+      .catch(err => res.status(500).json({ status: 'error', message: err.message }));
+  });
+
+  app.post('/ignore', (req, res) => {
+    const { entity_type, entity_id } = req.body;
+    updateReportStatus(entity_type, entity_id, 'مُتجاهل')
+      .then(result => res.json(result))
+      .catch(err => res.status(500).json({ status: 'error', message: err.message }));
+  });
+
+  app.listen(PORT, () => {
+    console.log(`[+] واجهة ويب تعمل على http://0.0.0.0:${PORT}`);
+  });
+}
+
+// دالة لتشغيل جميع الميزات
+async function runAllFeatures(config) {
+  // إرسال إشعار بداية المسح
+  await sendTelegramText('🔍 <b>بدأ مسح نماذج البرمجة...</b>');
+
+  const suspiciousModels = [];
+  const suspiciousRepos = [];
+  const suspiciousServers = [];
+
+  // تشغيل جميع ميزات المسح
+  if (config.huggingface) {
+    console.log('[+] مسح Hugging Face...');
+    const models = await scanHuggingFace(config.limit);
+    suspiciousModels.push(...models);
+  }
+
+  if (config.github) {
+    console.log('[+] مسح GitHub...');
+    const repos = await scanGitHub(config.limit);
+    suspiciousRepos.push(...repos);
+  }
+
+  if (config.modelscope) {
+    console.log('[+] مسح ModelScope...');
+    const models = await scanModelScope(config.limit);
+    suspiciousModels.push(...models);
+  }
+
+  if (config.civitai) {
+    console.log('[+] مسح CivitAI...');
+    const models = await scanCivitAI(config.limit);
+    suspiciousModels.push(...models);
+  }
+
+  if (config.replicate) {
+    console.log('[+] مسح Replicate...');
+    const models = await scanReplicate(config.limit);
+    suspiciousModels.push(...models);
+  }
+
+  if (config.tensorflowHub) {
+    console.log('[+] مسح TensorFlow Hub...');
+    const models = await scanTensorFlowHub(config.limit);
+    suspiciousModels.push(...models);
+  }
+
+  if (config.noLicense) {
+    console.log('[+] مسح نماذج بدون ترخيص...');
+    const models = await scanNoLicense(config.limit);
+    suspiciousModels.push(...models);
+  }
+
+  if (config.stolen) {
+    console.log('[+] مسح نماذج مسروقة...');
+    const models = await scanStolenModels(config.limit);
+    suspiciousModels.push(...models);
+  }
+
+  if (config.darkwebOsint) {
+    console.log('[+] محاكاة تحليل Dark Web OSINT...');
+    await simulateDarkWebOSINT();
+  }
+
+  if (config.malwareAnalysis) {
+    console.log('[+] محاكاة تحليل Malware...');
+    await simulateMalwareAnalysis();
+  }
+
+  // حفظ النتائج في قاعدة البيانات
+  await saveToDatabase(suspiciousModels, suspiciousRepos, suspiciousServers);
+
+  // إرسال التقرير النصي إلى تليجرام
+  await sendTextReportToTelegram(suspiciousModels, suspiciousRepos, suspiciousServers);
+
+  // إرسال البيانات إلى SIEM إذا تم تحديده
+  if (config.siem) {
+    console.log(`[+] إرسال البيانات إلى ${config.siem}...`);
+    const siemData = [];
+    for (const model of suspiciousModels) {
+      siemData.push({
+        '@timestamp': new Date().toISOString(),
+        entity_type: 'model',
+        entity_id: model.id,
+        entity_name: model.name || model.id,
+        license: model.license,
+        url: model.url,
+        violation_type: model.violation_type,
+        severity: model.severity,
+        platform: model.platform
+      });
+    }
+    for (const repo of suspiciousRepos) {
+      siemData.push({
+        '@timestamp': new Date().toISOString(),
+        entity_type: 'repo',
+        entity_id: repo.name,
+        entity_name: repo.name,
+        license: repo.license,
+        url: repo.url,
+        violation_type: repo.violation_type,
+        severity: repo.severity,
+        platform: repo.platform
+      });
+    }
+    await sendToSIEM(siemData, config.siem, config.siemUrl, config.siemApiKey);
+  }
+
+  // إرسال إشعار نهاية المسح
+  await sendTelegramText(
+    `✅ <b>تم الانتهاء من مسح نماذج البرمجة.</b>\n\n` +
+    `📊 <b>عدد النماذج المخالفة:</b> <code>${suspiciousModels.length}</code>\n` +
+    `📂 <b>عدد المستودعات المخالفة:</b> <code>${suspiciousRepos.length}</code>\n` +
+    `🖥️ <b>عدد الخادمات غير الآمنة:</b> <code>${suspiciousServers.length}</code>`
+  );
+
+  // عرض إرشادات للإبلاغ
+  console.log('\n[+] إرشادات للإبلاغ عن المخالفات:');
+  const guidelines = {
+    'Hugging Face': {
+      security: 'https://huggingface.co/security',
+      dmca: 'https://huggingface.co/dmca',
+      description: 'الإبلاغ عن نماذج برمجة مخالفة للتراخيص أو مسروقة.'
+    },
+    'GitHub': {
+      dmca: 'https://docs.github.com/en/site-policy/dmca-takedown-policy/dmca-takedown-notice-template',
+      security: 'https://securitylab.github.com/',
+      description: 'الإبلاغ عن مستودعات تحتوي على نماذج برمجة مخالفة.'
+    },
+    'CivitAI': {
+      dmca: 'https://civitai.com/dmca',
+      description: 'الإبلاغ عن نماذج مخالفة على CivitAI.'
+    },
+    'Replicate': {
+      security: 'https://replicate.com/security',
+      description: 'الإبلاغ عن نماذج مخالفة على Replicate.'
+    },
+    'TensorFlow Hub': {
+      security: 'https://www.tensorflow.org/responsible_ai',
+      description: 'الإبلاغ عن نماذج مخالفة على TensorFlow Hub.'
+    },
+    'Bug Bounty Programs': {
+      'Meta': {
+        url: 'https://www.facebook.com/whitehat',
+        reward: '$500 - $40,000+'
+      },
+      'Google': {
+        url: 'https://www.google.com/about/appsecurity/reward-program/',
+        reward: '$100 - $31,337+'
+      },
+      'Microsoft': {
+        url: 'https://www.microsoft.com/en-us/msrc/bounty',
+        reward: '$500 - $250,000+'
+      }
+    }
+  };
+
+  for (const [platform, info] of Object.entries(guidelines)) {
+    console.log(`\n${platform}:`);
+    if (info.url) {
+      console.log(`  - البرنامج: ${info.url}`);
+      console.log(`  - المكافأة: ${info.reward || 'غير محدد'}`);
+    } else {
+      for (const [key, value] of Object.entries(info)) {
+        console.log(`  - ${key}: ${value}`);
+      }
+    }
+  }
+
+  // بدء واجهة ويب إذا تم تحديدها
+  if (config.web) {
+    startWebInterface();
+  }
+
+  // بدء الجدولة إذا تم تحديدها
+  if (config.schedule) {
+    console.log(`[+] بدء جدولة المسح التلقائي كل ${config.schedule} ساعات...`);
+    schedule.scheduleJob(`every ${config.schedule} hours`, async () => {
+      console.log(`[+] بدء المسح التلقائي في ${new Date()}`);
+      await runAllFeatures(config);
+    });
+  }
+}
+
+// الدالة الرئيسية
+async function main() {
+  const args = yargs(hideBin(process.argv))
+    .option('all', {
+      describe: 'تشغيل جميع المنصات (Hugging Face, GitHub, ModelScope, CivitAI, Replicate, TensorFlow Hub).',
+      type: 'boolean',
+      default: false
+    })
+    .option('huggingface', {
+      describe: 'مسح Hugging Face بحثًا عن نماذج برمجة مخالفة.',
+      type: 'boolean',
+      default: false
+    })
+    .option('github', {
+      describe: 'مسح GitHub بحثًا عن مستودعات برمجة مخالفة.',
+      type: 'boolean',
+      default: false
+    })
+    .option('modelscope', {
+      describe: 'مسح ModelScope بحثًا عن نماذج برمجة مخالفة.',
+      type: 'boolean',
+      default: false
+    })
+    .option('civitai', {
+      describe: 'مسح CivitAI بحثًا عن نماذج مخالفة.',
+      type: 'boolean',
+      default: false
+    })
+    .option('replicate', {
+      describe: 'مسح Replicate بحثًا عن نماذج مخالفة.',
+      type: 'boolean',
+      default: false
+    })
+    .option('tensorflow-hub', {
+      describe: 'مسح TensorFlow Hub بحثًا عن نماذج مخالفة.',
+      type: 'boolean',
+      default: false
+    })
+    .option('no-license', {
+      describe: 'مسح نماذج برمجة بدون ترخيص.',
+      type: 'boolean',
+      default: false
+    })
+    .option('stolen', {
+      describe: 'مسح نماذج برمجة مسروقة.',
+      type: 'boolean',
+      default: false
+    })
+    .option('darkweb-osint', {
+      describe: 'محاكاة تحليل Dark Web OSINT.',
+      type: 'boolean',
+      default: false
+    })
+    .option('malware-analysis', {
+      describe: 'محاكاة تحليل Malware.',
+      type: 'boolean',
+      default: false
+    })
+    .option('limit', {
+      describe: 'حد عدد النتائج لكل كلمة مفتاحية.',
+      type: 'number',
+      default: 20
+    })
+    .option('web', {
+      describe: 'بدء واجهة ويب لعرض النتائج.',
+      type: 'boolean',
+      default: false
+    })
+    .option('schedule', {
+      describe: 'جدولة المسح التلقائي كل X ساعات.',
+      type: 'number'
+    })
+    .option('siem', {
+      describe: 'إرسال البيانات إلى SIEM (elk أو splunk).',
+      type: 'string',
+      choices: ['elk', 'splunk']
+    })
+    .option('siem-url', {
+      describe: 'رابط SIEM.',
+      type: 'string'
+    })
+    .option('siem-api-key', {
+      describe: 'مفتاح API لـ SIEM.',
+      type: 'string'
+    })
+    .argv;
+
+  const config = {
+    huggingface: args.all || args.huggingface,
+    github: args.all || args.github,
+    modelscope: args.all || args.modelscope,
+    civitai: args.all || args.civitai,
+    replicate: args.all || args.replicate,
+    tensorflowHub: args.all || args.tensorflowHub,
+    noLicense: args.all || args.noLicense,
+    stolen: args.all || args.stolen,
+    darkwebOsint: args.all || args.darkwebOsint,
+    malwareAnalysis: args.all || args.malwareAnalysis,
+    limit: args.limit,
+    web: args.web,
+    schedule: args.schedule,
+    siem: args.siem,
+    siemUrl: args.siemUrl,
+    siemApiKey: args.siemApiKey
+  };
+
+  // تشغيل جميع الميزات
+  runAllFeatures(config).catch(err => {
+    console.error('خطأ في تشغيل الأداة:', err.message);
+  });
+}
+
+// بدء الأداة
+main().catch(err => {
+  console.error('خطأ في بدء الأداة:', err.message);
+});
+
+// التعامل مع إغلاق البرنامج
+process.on('SIGINT', () => {
+  console.log('\n[!] يتم إغلاق الأداة...');
+  db.close();
+  process.exit(0);
+});
