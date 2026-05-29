@@ -1,9 +1,10 @@
 /**
- * search-ai.js - Full Node.js AI Programming Models Scanner
- * أداة متكاملة لمسح نماذج البرمجة في الذكاء الاصطناعي
- * مع إشعارات نصية على تليجرام، دعم لمنصات متعددة، قاعدة بيانات، واجهة ويب، وتكامل مع SIEM
+ * search-ai.js - Complete Final Version
+ * أداة متكاملة لمسح نماذج البرمجة في الذكاء الاصطناعي
+ * مع إشعارات نصية على تليجرام، دعم لمنصات متعددة، قاعدة بيانات، واجهة ويب، وتكامل مع SIEM
+ * 
+ * Usage: node search-ai.js --all
  */
- //npm install express axios sqlite3 node-schedule yargs body-parser cors dotenv
 
 require('dotenv').config();
 const express = require('express');
@@ -14,8 +15,9 @@ const yargs = require('yargs/yargs');
 const { hideBin } = require('yargs/helpers');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+const botConfig = require('./bot_config.json');
 
-// قراءة متغيرات البيئة
+// قراءة متغيرات البيئة
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const SIEM_URL = process.env.SIEM_URL;
@@ -23,7 +25,7 @@ const SIEM_API_KEY = process.env.SIEM_API_KEY;
 const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
 const KAGGLE_API_TOKEN = process.env.KAGGLE_API_TOKEN;
 
-// إعداد خادم Express
+// إعداد خادم Express
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
@@ -32,13 +34,13 @@ app.use(bodyParser.urlencoded({ extended: true }));
 // بدء الخادم
 const PORT = process.env.PORT || 5000;
 
-// قائمة التراخيص المسموح بها
+// قائمة التراخيص المسموح بها
 const allowedLicenses = [
   'apache-2.0', 'mit', 'gpl', 'llama-2', 'bsd',
   'cc-by-4.0', 'cc-by-sa-4.0', 'lgpl', 'mpl-2.0'
 ];
 
-// قائمة التراخيص المشبوهة
+// قائمة التراخيص المشبوهة
 const suspiciousLicenses = ['unknown', 'other', 'proprietary', 'non-commercial'];
 
 // كلمات مفتاحية لنماذج البرمجة
@@ -48,17 +50,17 @@ const programmingModelsKeywords = [
   'PLM', 'CodeBERT', 'GraphCodeBERT', 'CodeParrot', 'AlphaCode'
 ];
 
-// إعداد قاعدة البيانات
+// إعداد قاعدة البيانات
 const db = new sqlite3.Database('./ai_violations.db', (err) => {
   if (err) {
-    console.error('خطأ في فتح قاعدة البيانات:', err.message);
+    console.error('خطأ في فتح قاعدة البيانات:', err.message);
   } else {
     console.log('[+] تم الاتصال بقاعدة البيانات');
     initializeDatabase();
   }
 });
 
-// تهيئة قاعدة البيانات
+// تهيئة قاعدة البيانات
 function initializeDatabase() {
   db.serialize(() => {
     db.run(`
@@ -82,16 +84,16 @@ function initializeDatabase() {
   });
 }
 
-// إرسال إشعار نصي إلى تليجرام
-async function sendTelegramText(message) {
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-    console.error('رمز البوت أو معرف الدردشة غير مضبوط.');
+// إرسال إشعار نصي إلى تليجرام
+async function sendTelegramText(message, chatId = TELEGRAM_CHAT_ID) {
+  if (!TELEGRAM_BOT_TOKEN || !chatId) {
+    console.error('رمز البوت أو معرف الدردشة غير مضبوط.');
     return { status: 'error', message: 'Telegram bot token or chat ID not set.' };
   }
 
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
   const payload = {
-    chat_id: TELEGRAM_CHAT_ID,
+    chat_id: chatId,
     text: message,
     parse_mode: 'HTML',
     disable_web_page_preview: true
@@ -101,69 +103,59 @@ async function sendTelegramText(message) {
     const response = await axios.post(url, payload, { timeout: 10000 });
     return { status: 'success' };
   } catch (error) {
-    console.error('خطأ في إرسال الإشعار:', error.message);
+    console.error('خطأ في إرسال الإشعار:', error.message);
     return { status: 'error', message: error.message };
   }
 }
 
-// إرسال تقرير نصي إلى تليجرام
-async function sendTextReportToTelegram(suspiciousModels, suspiciousRepos, suspiciousServers = []) {
-  if (!suspiciousModels.length && !suspiciousRepos.length && !suspiciousServers.length) {
-    await sendTelegramText('✅ <b>لا يوجد أي مخالفات تم اكتشافها.</b>');
-    return;
+// دالة لعرض قائمة الأوامر مع شرح
+function showHelp(chatId) {
+  let helpMessage = "📜 <b>قائمة أوامر البوت:</b>\n\n";
+
+  // تصنيف الأوامر حسب الفئة
+  const categories = {};
+  botConfig.commands.forEach(command => {
+    if (!categories[command.category]) {
+      categories[command.category] = [];
+    }
+    categories[command.category].push(command);
+  });
+
+  // عرض الأوامر حسب الفئة
+  for (const [category, commands] of Object.entries(categories)) {
+    helpMessage += `🔹 <b>${category}:</b>\n`;
+    commands.forEach(command => {
+      helpMessage += `📌 /${command.command}\n`;
+      helpMessage += `   📝 <b>الوصف:</b> ${command.description}\n`;
+      helpMessage += `   📌 <b>الاستخدام:</b> ${command.usage}\n`;
+      if (command.example) {
+        helpMessage += `   💡 <b>مثال:</b> <code>${command.example}</code>\n`;
+      }
+      if (command.requirements) {
+        helpMessage += `   ⚠️ <b>المتطلبات:</b> ${Object.values(command.requirements).join(", ")}\n`;
+      }
+      helpMessage += "\n";
+    });
+    helpMessage += "\n";
   }
 
-  let reportLines = [];
-  reportLines.push(`📊 <b>تقرير عن مخالفات نماذج البرمجة</b>`);
-  reportLines.push(`📅 <b>التاريخ:</b> ${new Date().toLocaleString('ar-SA')}`);
-  reportLines.push('');
-
-  // إضافة نماذج مشبوهة
-  if (suspiciousModels.length) {
-    reportLines.push(`🔹 <b>نماذج مشبوهة (${suspiciousModels.length})</b>`);
-    for (const model of suspiciousModels) {
-      reportLines.push('');
-      reportLines.push(`📌 <b>معرف النموذج:</b> <code>${model.id}</code>`);
-      reportLines.push(`🔗 <b>الرابط:</b> ${model.url}`);
-      reportLines.push(`📜 <b>الترخيص:</b> <code>${model.license}</code>`);
-      reportLines.push(`🏷️ <b>الكلمة المفتاحية:</b> <code>${model.keyword || 'N/A'}</code>`);
-      reportLines.push(`🔍 <b>نوع المخالفة:</b> ${model.violation_type || 'N/A'}`);
-      reportLines.push(`⚠️ <b>درجة الخطورة:</b> ${model.severity || 'N/A'}`);
-      reportLines.push(`📅 <b>آخر تعديل:</b> ${model.last_modified || 'N/A'}`);
+  // إضافة إرشادات للإبلاغ
+  helpMessage += "📌 <b>إرشادات للإبلاغ عن المخالفات:</b>\n";
+  for (const [platform, info] of Object.entries(botConfig.reporting_guidelines)) {
+    helpMessage += `\n🔹 <b>${platform}:</b>\n`;
+    if (info.url) {
+      helpMessage += `   🔗 <b>الرابط:</b> ${info.url}\n`;
+      if (info.reward) {
+        helpMessage += `   💰 <b>المكافأة:</b> ${info.reward}\n`;
+      }
+    } else {
+      for (const [key, value] of Object.entries(info)) {
+        helpMessage += `   ${key}: ${value}\n`;
+      }
     }
   }
 
-  // إضافة مستودعات مشبوهة
-  if (suspiciousRepos.length) {
-    reportLines.push('');
-    reportLines.push(`📂 <b>مستودعات مشبوهة (${suspiciousRepos.length})</b>`);
-    for (const repo of suspiciousRepos) {
-      reportLines.push('');
-      reportLines.push(`📦 <b>اسم المستودع:</b> <code>${repo.name}</code>`);
-      reportLines.push(`🔗 <b>الرابط:</b> ${repo.url}`);
-      reportLines.push(`📜 <b>الترخيص:</b> <code>${repo.license}</code>`);
-      reportLines.push(`🏷️ <b>الكلمة المفتاحية:</b> <code>${repo.keyword || 'N/A'}</code>`);
-      reportLines.push(`🔍 <b>نوع المخالفة:</b> ${repo.violation_type || 'N/A'}`);
-      reportLines.push(`⚠️ <b>درجة الخطورة:</b> ${repo.severity || 'N/A'}`);
-      reportLines.push(`📅 <b>آخر تحديث:</b> ${repo.last_updated || 'N/A'}`);
-    }
-  }
-
-  // إضافة خادمات غير آمنة
-  if (suspiciousServers.length) {
-    reportLines.push('');
-    reportLines.push(`🖥️ <b>خادمات غير آمنة (${suspiciousServers.length})</b>`);
-    for (const server of suspiciousServers) {
-      reportLines.push('');
-      reportLines.push(`📌 <b>IP:</b> <code>${server.ip}</code>`);
-      reportLines.push(`🔍 <b>نوع المخالفة:</b> ${server.violation_type || 'N/A'}`);
-      reportLines.push(`⚠️ <b>درجة الخطورة:</b> ${server.severity || 'N/A'}`);
-    }
-  }
-
-  // إرسال التقرير
-  const fullReport = reportLines.join('\n');
-  await sendTelegramText(fullReport);
+  sendTelegramText(helpMessage, chatId);
 }
 
 // تحديد نوع المخالفة
@@ -188,6 +180,66 @@ function determineSeverity(violationType) {
     'مخالفة عامة': 'منخفضة'
   };
   return severityMap[violationType] || 'منخفضة';
+}
+
+// إرسال تقرير نصي إلى تليجرام
+async function sendTextReportToTelegram(suspiciousModels, suspiciousRepos, suspiciousServers = [], chatId = TELEGRAM_CHAT_ID) {
+  if (!suspiciousModels.length && !suspiciousRepos.length && !suspiciousServers.length) {
+    await sendTelegramText('✅ <b>لا يوجد أي مخالفات تم اكتشافها.</b>', chatId);
+    return;
+  }
+
+  let reportLines = [];
+  reportLines.push(`📊 <b>تقرير عن مخالفات نماذج البرمجة</b>`);
+  reportLines.push(`📅 <b>التاريخ:</b> ${new Date().toLocaleString('ar-SA')}`);
+  reportLines.push('');
+
+  // إضافة نماذج مشبوهة
+  if (suspiciousModels.length) {
+    reportLines.push(`🔹 <b>نماذج مشبوهة (${suspiciousModels.length})</b>`);
+    for (const model of suspiciousModels) {
+      reportLines.push('');
+      reportLines.push(`📌 <b>معرف النموذج:</b> <code>${model.id}</code>`);
+      reportLines.push(`🔗 <b>الرابط:</b> ${model.url}`);
+      reportLines.push(`📜 <b>الترخيص:</b> <code>${model.license}</code>`);
+      reportLines.push(`🏷️ <b>الكلمة المفتاحية:</b> <code>${model.keyword || 'N/A'}</code>`);
+      reportLines.push(`🔍 <b>نوع المخالفة:</b> ${model.violation_type || 'N/A'}`);
+      reportLines.push(`⚠️ <b>درجة الخطورة:</b> ${model.severity || 'N/A'}`);
+      reportLines.push(`📅 <b>آخر تعديل:</b> ${model.last_modified || 'N/A'}`);
+    }
+  }
+
+  // إضافة مستودعات مشبوهة
+  if (suspiciousRepos.length) {
+    reportLines.push('');
+    reportLines.push(`📂 <b>مستودعات مشبوهة (${suspiciousRepos.length})</b>`);
+    for (const repo of suspiciousRepos) {
+      reportLines.push('');
+      reportLines.push(`📦 <b>اسم المستودع:</b> <code>${repo.name}</code>`);
+      reportLines.push(`🔗 <b>الرابط:</b> ${repo.url}`);
+      reportLines.push(`📜 <b>الترخيص:</b> <code>${repo.license}</code>`);
+      reportLines.push(`🏷️ <b>الكلمة المفتاحية:</b> <code>${repo.keyword || 'N/A'}</code>`);
+      reportLines.push(`🔍 <b>نوع المخالفة:</b> ${repo.violation_type || 'N/A'}`);
+      reportLines.push(`⚠️ <b>درجة الخطورة:</b> ${repo.severity || 'N/A'}`);
+      reportLines.push(`📅 <b>آخر تحديث:</b> ${repo.last_updated || 'N/A'}`);
+    }
+  }
+
+  // إضافة خادمات غير آمنة
+  if (suspiciousServers.length) {
+    reportLines.push('');
+    reportLines.push(`🖥️ <b>خادمات غير آمنة (${suspiciousServers.length})</b>`);
+    for (const server of suspiciousServers) {
+      reportLines.push('');
+      reportLines.push(`📌 <b>IP:</b> <code>${server.ip}</code>`);
+      reportLines.push(`🔍 <b>نوع المخالفة:</b> ${server.violation_type || 'N/A'}`);
+      reportLines.push(`⚠️ <b>درجة الخطورة:</b> ${server.severity || 'N/A'}`);
+    }
+  }
+
+  // إرسال التقرير
+  const fullReport = reportLines.join('\n');
+  await sendTelegramText(fullReport, chatId);
 }
 
 // البحث في Hugging Face
@@ -215,7 +267,7 @@ async function scanHuggingFace(limit = 20) {
             platform: 'Hugging Face'
           });
 
-          // إرسال إشعار فوري
+          // إرسال إشعار فوري
           const message = `
 ⚠️ <b>نموذج برمجة مشبوه</b>
 
@@ -230,7 +282,7 @@ async function scanHuggingFace(limit = 20) {
         }
       }
     } catch (error) {
-      console.error(`خطأ في مسح Hugging Face للكلمة ${keyword}:`, error.message);
+      console.error(`خطأ في مسح Hugging Face للكلمة ${keyword}:`, error.message);
       continue;
     }
   }
@@ -263,7 +315,7 @@ async function scanGitHub(limit = 20) {
             platform: 'GitHub'
           });
 
-          // إرسال إشعار فوري
+          // إرسال إشعار فوري
           const message = `
 ⚠️ <b>مستودع برمجة مشبوه</b>
 
@@ -278,7 +330,7 @@ async function scanGitHub(limit = 20) {
         }
       }
     } catch (error) {
-      console.error(`خطأ في مسح GitHub للكلمة ${keyword}:`, error.message);
+      console.error(`خطأ في مسح GitHub للكلمة ${keyword}:`, error.message);
       continue;
     }
   }
@@ -310,7 +362,7 @@ async function scanModelScope(limit = 20) {
             platform: 'ModelScope'
           });
 
-          // إرسال إشعار فوري
+          // إرسال إشعار فوري
           const message = `
 ⚠️ <b>نموذج برمجة مشبوه (ModelScope)</b>
 
@@ -325,7 +377,7 @@ async function scanModelScope(limit = 20) {
         }
       }
     } catch (error) {
-      console.error(`خطأ في مسح ModelScope للكلمة ${keyword}:`, error.message);
+      console.error(`خطأ في مسح ModelScope للكلمة ${keyword}:`, error.message);
       continue;
     }
   }
@@ -365,7 +417,7 @@ async function scanCivitAI(limit = 20) {
             platform: 'CivitAI'
           });
 
-          // إرسال إشعار فوري
+          // إرسال إشعار فوري
           const message = `
 ⚠️ <b>نموذج مشبوه على CivitAI</b>
 
@@ -380,7 +432,7 @@ async function scanCivitAI(limit = 20) {
         }
       }
     } catch (error) {
-      console.error(`خطأ في مسح CivitAI للكلمة ${keyword}:`, error.message);
+      console.error(`خطأ في مسح CivitAI للكلمة ${keyword}:`, error.message);
       continue;
     }
   }
@@ -425,7 +477,7 @@ async function scanReplicate(limit = 20) {
             platform: 'Replicate'
           });
 
-          // إرسال إشعار فوري
+          // إرسال إشعار فوري
           const message = `
 ⚠️ <b>نموذج مشبوه على Replicate</b>
 
@@ -440,7 +492,7 @@ async function scanReplicate(limit = 20) {
         }
       }
     } catch (error) {
-      console.error(`خطأ في مسح Replicate للكلمة ${keyword}:`, error.message);
+      console.error(`خطأ في مسح Replicate للكلمة ${keyword}:`, error.message);
       continue;
     }
   }
@@ -474,7 +526,7 @@ async function scanTensorFlowHub(limit = 20) {
             platform: 'TensorFlow Hub'
           });
 
-          // إرسال إشعار فوري
+          // إرسال إشعار فوري
           const message = `
 ⚠️ <b>نموذج مشبوه على TensorFlow Hub</b>
 
@@ -489,7 +541,7 @@ async function scanTensorFlowHub(limit = 20) {
         }
       }
     } catch (error) {
-      console.error(`خطأ في مسح TensorFlow Hub للكلمة ${keyword}:`, error.message);
+      console.error(`خطأ في مسح TensorFlow Hub للكلمة ${keyword}:`, error.message);
       continue;
     }
   }
@@ -521,7 +573,7 @@ async function scanNoLicense(limit = 20) {
           platform: 'Hugging Face'
         });
 
-        // إرسال إشعار فوري
+        // إرسال إشعار فوري
         const message = `
 ⚠️ <b>نموذج برمجة بدون ترخيص</b>
 
@@ -535,7 +587,7 @@ async function scanNoLicense(limit = 20) {
       }
     }
   } catch (error) {
-    console.error('خطأ في مسح نماذج بدون ترخيص:', error.message);
+    console.error('خطأ في مسح نماذج بدون ترخيص:', error.message);
   }
   return suspiciousModels;
 }
@@ -561,7 +613,7 @@ async function scanStolenModels(limit = 20) {
           platform: 'Hugging Face'
         });
 
-        // إرسال إشعار فوري
+        // إرسال إشعار فوري
         const message = `
 🕵️ <b>نموذج مسروق محتمل</b>
 
@@ -573,7 +625,7 @@ async function scanStolenModels(limit = 20) {
         await sendTelegramText(message);
       }
     } catch (error) {
-      console.error(`خطأ في مسح نماذج مسروقة للكلمة ${keyword}:`, error.message);
+      console.error(`خطأ في مسح نماذج مسروقة للكلمة ${keyword}:`, error.message);
       continue;
     }
   }
@@ -596,7 +648,7 @@ async function simulateDarkWebOSINT() {
     {
       source: 'Twitter',
       type: 'تغريدات حول نماذج مخترقة',
-      data: 'تغريدات حول نماذج DeepSeek-Coder مع أبواب خلفية'
+      data: 'تغريدات حول نماذج DeepSeek-Coder مع أبواب خلفية'
     }
   ];
 
@@ -641,13 +693,13 @@ async function simulateMalwareAnalysis() {
   }
 }
 
-// حفظ النتائج في قاعدة البيانات
+// حفظ النتائج في قاعدة البيانات
 function saveToDatabase(suspiciousModels, suspiciousRepos, suspiciousServers = []) {
   return new Promise((resolve, reject) => {
     db.serialize(() => {
       const timestamp = new Date().toISOString();
 
-      // إدراج النماذج
+      // إدراج النماذج
       for (const model of suspiciousModels) {
         db.run(
           `INSERT INTO violations (
@@ -670,7 +722,7 @@ function saveToDatabase(suspiciousModels, suspiciousRepos, suspiciousServers = [
         );
       }
 
-      // إدراج المستودعات
+      // إدراج المستودعات
       for (const repo of suspiciousRepos) {
         db.run(
           `INSERT INTO violations (
@@ -698,7 +750,7 @@ function saveToDatabase(suspiciousModels, suspiciousRepos, suspiciousServers = [
   });
 }
 
-// تحديث حالة الإبلاغ
+// تحديث حالة الإبلاغ
 function updateReportStatus(entityType, entityId, status) {
   return new Promise((resolve, reject) => {
     db.run(
@@ -708,14 +760,14 @@ function updateReportStatus(entityType, entityId, status) {
         if (err) {
           reject(err);
         } else {
-          resolve({ status: 'success', message: `تم تحديث حالة الإبلاغ لـ ${entityId}` });
+          resolve({ status: 'success', message: `تم تحديث حالة الإبلاغ لـ ${entityId}` });
         }
       }
     );
   });
 }
 
-// إرسال البيانات إلى SIEM
+// إرسال البيانات إلى SIEM
 async function sendToSIEM(data, siemType, siemUrl, siemApiKey) {
   if (siemType === 'elk') {
     if (!siemUrl) {
@@ -734,7 +786,7 @@ async function sendToSIEM(data, siemType, siemUrl, siemApiKey) {
       }
       return { status: 'success', message: 'Data sent to Elasticsearch.' };
     } catch (error) {
-      console.error('خطأ في إرسال البيانات إلى Elasticsearch:', error.message);
+      console.error('خطأ في إرسال البيانات إلى Elasticsearch:', error.message);
       return { status: 'error', message: error.message };
     }
   } else if (siemType === 'splunk') {
@@ -754,7 +806,7 @@ async function sendToSIEM(data, siemType, siemUrl, siemApiKey) {
       }
       return { status: 'success', message: 'Data sent to Splunk.' };
     } catch (error) {
-      console.error('خطأ في إرسال البيانات إلى Splunk:', error.message);
+      console.error('خطأ في إرسال البيانات إلى Splunk:', error.message);
       return { status: 'error', message: error.message };
     }
   } else {
@@ -767,15 +819,15 @@ function startWebInterface() {
   app.get('/', (req, res) => {
     db.all(`SELECT * FROM violations ORDER BY detected_at DESC`, (err, violations) => {
       if (err) {
-        console.error('خطأ في جلب البيانات:', err.message);
-        return res.status(500).send('خطأ في قاعدة البيانات');
+        console.error('خطأ في جلب البيانات:', err.message);
+        return res.status(500).send('خطأ في قاعدة البيانات');
       }
 
       db.get(`SELECT COUNT(*) as count FROM violations WHERE entity_type = 'model'`, (err, row) => {
         const modelCount = row.count;
         db.get(`SELECT COUNT(*) as count FROM violations WHERE entity_type = 'repo'`, (err, row) => {
           const repoCount = row.count;
-          db.get(`SELECT COUNT(*) as count FROM violations WHERE status = 'تم الإبلاغ'`, (err, row) => {
+          db.get(`SELECT COUNT(*) as count FROM violations WHERE status = 'تم الإبلاغ'`, (err, row) => {
             const reportedCount = row.count;
 
             const html = `
@@ -783,7 +835,7 @@ function startWebInterface() {
             <html dir="rtl" lang="ar">
             <head>
                 <meta charset="UTF-8">
-                <title>لوحة تحكم - أداة مسح نماذج البرمجة</title>
+                <title>لوحة تحكم - أداة مسح نماذج البرمجة</title>
                 <style>
                     body { font-family: 'Arial', 'Segoe UI', sans-serif; text-align: right; direction: rtl; padding: 20px; background-color: #f9f9f9; }
                     .header { background-color: #333; color: white; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
@@ -816,7 +868,7 @@ function startWebInterface() {
             </head>
             <body>
                 <div class="header">
-                    <h1>لوحة تحكم - أداة مسح نماذج البرمجة</h1>
+                    <h1>لوحة تحكم - أداة مسح نماذج البرمجة</h1>
                     <p>مراقبة المخالفات المكتشفة</p>
                 </div>
 
@@ -831,11 +883,11 @@ function startWebInterface() {
                     </div>
                     <div class="stat-box">
                         <div class="stat-number">${reportedCount}</div>
-                        <div class="stat-label">تم الإبلاغ عنها</div>
+                        <div class="stat-label">تم الإبلاغ عنها</div>
                     </div>
                 </div>
 
-                <h2>قائمة المخالفات (${violations.length})</h2>
+                <h2>قائمة المخالفات (${violations.length})</h2>
                 <table>
                     <tr>
                         <th>النوع</th>
@@ -846,7 +898,7 @@ function startWebInterface() {
                         <th>الحالة</th>
                         <th>الرابط</th>
                         <th>تاريخ الكشف</th>
-                        <th>الإجراءات</th>
+                        <th>الإجراءات</th>
                     </tr>
                     ${violations.map(violation => `
                     <tr class="${violation.severity}">
@@ -859,7 +911,7 @@ function startWebInterface() {
                         <td><a href="${violation.url}" target="_blank">رابط</a></td>
                         <td>${violation.detected_at}</td>
                         <td class="actions">
-                            <button class="btn btn-report" onclick="reportViolation('${violation.entity_type}', '${violation.entity_id}')">إبلاغ</button>
+                            <button class="btn btn-report" onclick="reportViolation('${violation.entity_type}', '${violation.entity_id}')">إبلاغ</button>
                             <button class="btn btn-ignore" onclick="ignoreViolation('${violation.entity_type}', '${violation.entity_id}')">تجاهل</button>
                         </td>
                     </tr>
@@ -901,7 +953,7 @@ function startWebInterface() {
 
   app.post('/report', (req, res) => {
     const { entity_type, entity_id } = req.body;
-    updateReportStatus(entity_type, entity_id, 'تم الإبلاغ')
+    updateReportStatus(entity_type, entity_id, 'تم الإبلاغ')
       .then(result => res.json(result))
       .catch(err => res.status(500).json({ status: 'error', message: err.message }));
   });
@@ -920,8 +972,8 @@ function startWebInterface() {
 
 // دالة لتشغيل جميع الميزات
 async function runAllFeatures(config) {
-  // إرسال إشعار بداية المسح
-  await sendTelegramText('🔍 <b>بدأ مسح نماذج البرمجة...</b>');
+  // إرسال إشعار بداية المسح
+  await sendTelegramText('🔍 <b>بدأ مسح نماذج البرمجة...</b>');
 
   const suspiciousModels = [];
   const suspiciousRepos = [];
@@ -986,15 +1038,15 @@ async function runAllFeatures(config) {
     await simulateMalwareAnalysis();
   }
 
-  // حفظ النتائج في قاعدة البيانات
+  // حفظ النتائج في قاعدة البيانات
   await saveToDatabase(suspiciousModels, suspiciousRepos, suspiciousServers);
 
-  // إرسال التقرير النصي إلى تليجرام
+  // إرسال التقرير النصي إلى تليجرام
   await sendTextReportToTelegram(suspiciousModels, suspiciousRepos, suspiciousServers);
 
-  // إرسال البيانات إلى SIEM إذا تم تحديده
+  // إرسال البيانات إلى SIEM إذا تم تحديده
   if (config.siem) {
-    console.log(`[+] إرسال البيانات إلى ${config.siem}...`);
+    console.log(`[+] إرسال البيانات إلى ${config.siem}...`);
     const siemData = [];
     for (const model of suspiciousModels) {
       siemData.push({
@@ -1025,60 +1077,21 @@ async function runAllFeatures(config) {
     await sendToSIEM(siemData, config.siem, config.siemUrl, config.siemApiKey);
   }
 
-  // إرسال إشعار نهاية المسح
+  // إرسال إشعار نهاية المسح
   await sendTelegramText(
     `✅ <b>تم الانتهاء من مسح نماذج البرمجة.</b>\n\n` +
     `📊 <b>عدد النماذج المخالفة:</b> <code>${suspiciousModels.length}</code>\n` +
     `📂 <b>عدد المستودعات المخالفة:</b> <code>${suspiciousRepos.length}</code>\n` +
-    `🖥️ <b>عدد الخادمات غير الآمنة:</b> <code>${suspiciousServers.length}</code>`
+    `🖥️ <b>عدد الخادمات غير الآمنة:</b> <code>${suspiciousServers.length}</code>`
   );
 
-  // عرض إرشادات للإبلاغ
-  console.log('\n[+] إرشادات للإبلاغ عن المخالفات:');
-  const guidelines = {
-    'Hugging Face': {
-      security: 'https://huggingface.co/security',
-      dmca: 'https://huggingface.co/dmca',
-      description: 'الإبلاغ عن نماذج برمجة مخالفة للتراخيص أو مسروقة.'
-    },
-    'GitHub': {
-      dmca: 'https://docs.github.com/en/site-policy/dmca-takedown-policy/dmca-takedown-notice-template',
-      security: 'https://securitylab.github.com/',
-      description: 'الإبلاغ عن مستودعات تحتوي على نماذج برمجة مخالفة.'
-    },
-    'CivitAI': {
-      dmca: 'https://civitai.com/dmca',
-      description: 'الإبلاغ عن نماذج مخالفة على CivitAI.'
-    },
-    'Replicate': {
-      security: 'https://replicate.com/security',
-      description: 'الإبلاغ عن نماذج مخالفة على Replicate.'
-    },
-    'TensorFlow Hub': {
-      security: 'https://www.tensorflow.org/responsible_ai',
-      description: 'الإبلاغ عن نماذج مخالفة على TensorFlow Hub.'
-    },
-    'Bug Bounty Programs': {
-      'Meta': {
-        url: 'https://www.facebook.com/whitehat',
-        reward: '$500 - $40,000+'
-      },
-      'Google': {
-        url: 'https://www.google.com/about/appsecurity/reward-program/',
-        reward: '$100 - $31,337+'
-      },
-      'Microsoft': {
-        url: 'https://www.microsoft.com/en-us/msrc/bounty',
-        reward: '$500 - $250,000+'
-      }
-    }
-  };
-
-  for (const [platform, info] of Object.entries(guidelines)) {
+  // عرض إرشادات للإبلاغ
+  console.log('\n[+] إرشادات للإبلاغ عن المخالفات:');
+  for (const [platform, info] of Object.entries(botConfig.reporting_guidelines)) {
     console.log(`\n${platform}:`);
     if (info.url) {
       console.log(`  - البرنامج: ${info.url}`);
-      console.log(`  - المكافأة: ${info.reward || 'غير محدد'}`);
+      console.log(`  - المكافأة: ${info.reward || 'غير محدد'}`);
     } else {
       for (const [key, value] of Object.entries(info)) {
         console.log(`  - ${key}: ${value}`);
@@ -1086,22 +1099,171 @@ async function runAllFeatures(config) {
     }
   }
 
-  // بدء واجهة ويب إذا تم تحديدها
+  // بدء واجهة ويب إذا تم تحديدها
   if (config.web) {
     startWebInterface();
   }
 
-  // بدء الجدولة إذا تم تحديدها
+  // بدء الجدولة إذا تم تحديدها
   if (config.schedule) {
-    console.log(`[+] بدء جدولة المسح التلقائي كل ${config.schedule} ساعات...`);
+    console.log(`[+] بدء جدولة المسح التلقائي كل ${config.schedule} ساعات...`);
     schedule.scheduleJob(`every ${config.schedule} hours`, async () => {
-      console.log(`[+] بدء المسح التلقائي في ${new Date()}`);
+      console.log(`[+] بدء المسح التلقائي في ${new Date()}`);
       await runAllFeatures(config);
     });
   }
 }
 
-// الدالة الرئيسية
+// دالة لاستقبال أوامر البوت
+async function handleTelegramCommands() {
+  if (!TELEGRAM_BOT_TOKEN) {
+    console.error('TELEGRAM_BOT_TOKEN غير مضبوط.');
+    return;
+  }
+
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates`;
+  let lastUpdateId = 0;
+
+  setInterval(async () => {
+    try {
+      const response = await axios.get(url, {
+        params: { offset: lastUpdateId + 1, timeout: 10000 }
+      });
+
+      const updates = response.data.result;
+      for (const update of updates) {
+        lastUpdateId = update.update_id;
+        const message = update.message;
+        const chatId = message.chat.id;
+        const text = message.text;
+
+        if (!text) continue;
+
+        // البحث عن الأمر في botConfig
+        const command = botConfig.commands.find(cmd => `/${cmd.command}` === text);
+
+        if (command) {
+          // إرسال الاستجابة المخصصة للأمر
+          await sendTelegramText(command.response, chatId);
+
+          // تنفيذ الإجراء المخصص للأمر (إذا كان هناك)
+          if (command.action) {
+            const config = {
+              ...command.action,
+              limit: 20,
+              web: false,
+              schedule: false,
+              siem: false,
+              telegramChatId: chatId
+            };
+            await runAllFeatures(config);
+          }
+        } else if (text === '/help') {
+          // عرض قائمة الأوامر مع شرح
+          showHelp(chatId);
+        } else if (text === '/report') {
+          // عرض آخر 5 مخالفات
+          db.all(`SELECT * FROM violations ORDER BY detected_at DESC LIMIT 5`, (err, violations) => {
+            if (err || !violations.length) {
+              sendTelegramText(`❌ <b>لا يوجد مخالفات مسجلة.</b>`, chatId);
+              return;
+            }
+
+            let report = `📄 <b>آخر 5 مخالفات:</b>\n\n`;
+            for (const violation of violations) {
+              report += `📌 <b>النوع:</b> ${violation.entity_type}\n`;
+              report += `🔹 <b>المعرف:</b> <code>${violation.entity_name}</code>\n`;
+              report += `📜 <b>الترخيص:</b> <code>${violation.license}</code>\n`;
+              report += `🔍 <b>نوع المخالفة:</b> ${violation.violation_type}\n`;
+              report += `⚠️ <b>درجة الخطورة:</b> ${violation.severity}\n`;
+              report += `📅 <b>تاريخ الكشف:</b> ${violation.detected_at}\n\n`;
+            }
+            sendTelegramText(report, chatId);
+          });
+        } else if (text === '/stats') {
+          // عرض إحصائيات
+          db.get(`SELECT COUNT(*) as count FROM violations WHERE entity_type = 'model'`, (err, row) => {
+            const modelCount = row.count;
+            db.get(`SELECT COUNT(*) as count FROM violations WHERE entity_type = 'repo'`, (err, row) => {
+              const repoCount = row.count;
+              db.get(`SELECT COUNT(*) as count FROM violations WHERE status = 'تم الإبلاغ'`, (err, row) => {
+                const reportedCount = row.count;
+                sendTelegramText(
+                  `📊 <b>إحصائيات المخالفات:</b>\n\n` +
+                  `🔹 نماذج مشبوهة: <code>${modelCount}</code>\n` +
+                  `📂 مستودعات مشبوهة: <code>${repoCount}</code>\n` +
+                  `✅ تم الإبلاغ عنها: <code>${reportedCount}</code>`,
+                  chatId
+                );
+              });
+            });
+          });
+        } else if (text === '/web') {
+          await sendTelegramText(
+            `🌐 <b>واجهة ويب تعمل على:</b> http://${process.env.HOST || 'localhost'}:${PORT}\n` +
+            `يمكنك فتح هذا الرابط في متصفحك.`,
+            chatId
+          );
+          startWebInterface();
+        } else if (text.startsWith('/schedule_on')) {
+          const hours = parseInt(text.split(' ')[1]);
+          if (isNaN(hours) || hours <= 0) {
+            await sendTelegramText(`❌ <b>الرجاء تحديد عدد الساعات (مثال: /schedule_on 24).</b>`, chatId);
+            break;
+          }
+          await sendTelegramText(`⏰ <b>تم تفعيل الجدولة التلقائية كل ${hours} ساعات.</b>`, chatId);
+          schedule.scheduleJob(`every ${hours} hours`, async () => {
+            console.log(`[+] بدء المسح التلقائي في ${new Date()}`);
+            await runAllFeatures({
+              huggingface: true,
+              github: true,
+              modelscope: true,
+              civitai: true,
+              replicate: true,
+              tensorflowHub: true,
+              noLicense: true,
+              stolen: true,
+              darkwebOsint: true,
+              malwareAnalysis: true,
+              limit: 20,
+              web: false,
+              schedule: false,
+              siem: false,
+              telegramChatId: chatId
+            });
+          });
+        } else if (text === '/schedule_off') {
+          await sendTelegramText(`⏹️ <b>تم إيقاف الجدولة التلقائية.</b>`, chatId);
+          schedule.gracefulShutdown();
+        } else if (text.startsWith('/siem_on')) {
+          const siemArgs = text.split(' ');
+          if (siemArgs.length < 3) {
+            await sendTelegramText(
+              `❌ <b>الرجاء تحديد نوع SIEM ورابطه (مثال: /siem_on elk http://your-elasticsearch:9200).</b>`,
+              chatId
+            );
+            break;
+          }
+          const siemType = siemArgs[1];
+          const siemUrl = siemArgs[2];
+          await sendTelegramText(
+            `🔗 <b>تم تفعيل إرسال البيانات إلى ${siemType} على ${siemUrl}.</b>`,
+            chatId
+          );
+          // هنا يمكنك تحديث إعدادات SIEM في الكود
+        } else if (text === '/siem_off') {
+          await sendTelegramText(`🔗 <b>تم إيقاف إرسال البيانات إلى SIEM.</b>`, chatId);
+        } else {
+          await sendTelegramText(`❌ <b>أمر غير معروف. استخدم /help لعرض قائمة الأوامر.</b>`, chatId);
+        }
+      }
+    } catch (error) {
+      console.error('خطأ في استلام التحديثات:', error.message);
+    }
+  }, 5000); // التحقق كل 5 ثوان
+}
+
+// الدالة الرئيسية
 async function main() {
   const args = yargs(hideBin(process.argv))
     .option('all', {
@@ -1160,21 +1322,21 @@ async function main() {
       default: false
     })
     .option('limit', {
-      describe: 'حد عدد النتائج لكل كلمة مفتاحية.',
+      describe: 'حد عدد النتائج لكل كلمة مفتاحية.',
       type: 'number',
       default: 20
     })
     .option('web', {
-      describe: 'بدء واجهة ويب لعرض النتائج.',
+      describe: 'بدء واجهة ويب لعرض النتائج.',
       type: 'boolean',
       default: false
     })
     .option('schedule', {
-      describe: 'جدولة المسح التلقائي كل X ساعات.',
+      describe: 'جدولة المسح التلقائي كل X ساعات.',
       type: 'number'
     })
     .option('siem', {
-      describe: 'إرسال البيانات إلى SIEM (elk أو splunk).',
+      describe: 'إرسال البيانات إلى SIEM (elk أو splunk).',
       type: 'string',
       choices: ['elk', 'splunk']
     })
@@ -1207,20 +1369,25 @@ async function main() {
     siemApiKey: args.siemApiKey
   };
 
-  // تشغيل جميع الميزات
-  runAllFeatures(config).catch(err => {
-    console.error('خطأ في تشغيل الأداة:', err.message);
-  });
+  // بدء استلام أوامر البوت
+  handleTelegramCommands();
+
+  // تشغيل جميع الميزات إذا تم تحديدها من سطر الأوامر
+  if (args.all || Object.values(args).some(v => v === true)) {
+    runAllFeatures(config).catch(err => {
+      console.error('خطأ في تشغيل الأداة:', err.message);
+    });
+  }
 }
 
-// بدء الأداة
+// بدء الأداة
 main().catch(err => {
-  console.error('خطأ في بدء الأداة:', err.message);
+  console.error('خطأ في بدء الأداة:', err.message);
 });
 
-// التعامل مع إغلاق البرنامج
+// التعامل مع إغلاق البرنامج
 process.on('SIGINT', () => {
-  console.log('\n[!] يتم إغلاق الأداة...');
+  console.log('\n[!] يتم إغلاق الأداة...');
   db.close();
   process.exit(0);
 });
